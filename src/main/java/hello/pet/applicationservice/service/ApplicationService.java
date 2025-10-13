@@ -162,4 +162,9 @@ public class ApplicationService {
         approvedApp.approve();
         applicationRepository.bulkRejectApplications(announcementId, applicationId);
     }
+
+    @Transactional(readOnly = true)
+    public boolean hasUserAppliedToAnnouncement(Long announcementId, Long userId) {
+        return applicationRepository.findByUserIdAndAnnouncementId(userId, announcementId).isPresent();
+    }
 }

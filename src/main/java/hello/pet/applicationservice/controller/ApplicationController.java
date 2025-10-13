@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -82,5 +83,14 @@ public class ApplicationController {
         ApplicationApprovalResponse response =
                 applicationService.processApplicationApproval(announcementId, applicationId, userId, userRole);
         return ResponseEntity.status(HttpStatus.OK).body(response);
+    }
+
+    @GetMapping("/status")
+    public ResponseEntity<Boolean> hasUserAppliedToAnnouncement(
+            @RequestParam("announcementId") Long announcementId,
+            @RequestParam("userId") Long userId) {
+        
+        boolean hasApplied = applicationService.hasUserAppliedToAnnouncement(announcementId, userId);
+        return ResponseEntity.status(HttpStatus.OK).body(hasApplied);
     }
 }
