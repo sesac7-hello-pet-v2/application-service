@@ -22,24 +22,31 @@ public class ApplicationCreateRequest {
     private String reason;
 
     @Valid
+    @NotNull(message = "주거 정보는 필수 입력 항목입니다.")
     private HousingInfoRequest housingInfo;
 
     @Valid
+    @NotNull(message = "가족 정보는 필수 입력 항목입니다.")
     private FamilyInfoRequest familyInfo;
 
     @Valid
+    @NotNull(message = "돌봄 정보는 필수 입력 항목입니다.")
     private CareInfoRequest careInfo;
 
     @Valid
+    @NotNull(message = "재정 정보는 필수 입력 항목입니다.")
     private FinancialInfoRequest financialInfo;
 
     @Valid
+    @NotNull(message = "반려동물 경험 정보는 필수 입력 항목입니다.")
     private PetExperienceInfoRequest petExperienceInfo;
 
     @Valid
+    @NotNull(message = "향후 계획 정보는 필수 입력 항목입니다.")
     private FuturePlanInfoRequest futurePlanInfo;
 
     @Valid
+    @NotNull(message = "동의 정보는 필수 입력 항목입니다.")
     private AgreementInfoRequest agreement;
 
     public Application toEntity(Long userId, Long announcementId) {
