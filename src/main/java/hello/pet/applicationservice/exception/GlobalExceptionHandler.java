@@ -64,9 +64,9 @@ public class GlobalExceptionHandler {
         return generateExceptionResponse(e, HttpStatus.FORBIDDEN);
     }
 
-    @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<ExceptionResponse> handleRuntimeException(RuntimeException e) {
-        return generateExceptionResponse(e, HttpStatus.BAD_REQUEST);
+    @ExceptionHandler(ForbiddenOperationException.class)
+    public ResponseEntity<ExceptionResponse> handleForbidden(ForbiddenOperationException e) {
+        return generateExceptionResponse(e, HttpStatus.FORBIDDEN);
     }
 
     @ExceptionHandler(Exception.class)

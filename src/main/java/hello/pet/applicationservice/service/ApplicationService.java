@@ -1,6 +1,7 @@
 package hello.pet.applicationservice.service;
 
 import hello.pet.applicationservice.dto.response.AnnouncementResponse;
+import hello.pet.applicationservice.exception.ForbiddenOperationException;
 import hello.pet.applicationservice.facade.AnnouncementFacade;
 import hello.pet.applicationservice.dto.request.ApplicationCreateRequest;
 import hello.pet.applicationservice.dto.request.ApplicationPageRequest;
@@ -43,7 +44,7 @@ public class ApplicationService {
                                                        );
 
         if (!application.getUserId().equals(userId)) {
-            throw new RuntimeException("입양 신청서를 삭제할 권한이 없습니다.");
+            throw new ForbiddenOperationException("입양 신청서를 삭제할 권한이 없습니다.");
         }
 
         if (application.getStatus() == ApplicationStatus.APPROVED) {
@@ -71,7 +72,7 @@ public class ApplicationService {
         AnnouncementResponse announcement = announcementFacade.getAnnouncement(announcementId);
 
         if (!announcement.getShelterId().equals(shelterId)) {
-            throw new RuntimeException("해당 공고에 대한 접근 권한이 없습니다.");
+            throw new ForbiddenOperationException("해당 공고에 대한 접근 권한이 없습니다.");
         }
 
         Pageable pageable = request.toPageable();
