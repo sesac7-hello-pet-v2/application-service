@@ -18,6 +18,6 @@ public class ApplicationPageRequest {
     private int size = 10;
 
     public Pageable toPageable() {
-        return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "submittedAt"));
+        return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
     }
 }
