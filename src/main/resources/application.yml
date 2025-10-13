@@ -3,7 +3,7 @@ spring:
     name: application-service
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/db-application
+    url: jdbc:postgresql://localhost:5435/db-application
     username: postgres
     password: postgres
 
