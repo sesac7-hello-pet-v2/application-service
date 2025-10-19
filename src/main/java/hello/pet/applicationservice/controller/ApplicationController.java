@@ -85,11 +85,20 @@ public class ApplicationController {
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
+    /**
+     * 특정 사용자가 특정 공고에 이미 지원했는지 여부를 조회합니다.
+     * 프론트엔드에서 공고 상세 페이지 렌더링 시 지원 상태를 확인하고,
+     * "지원하기" 버튼 활성화/비활성화 처리를 위해 사용됩니다.
+     *
+     * @param announcementId 공고 ID
+     * @param userId 사용자 ID
+     * @return 지원했으면 true, 아니면 false
+     */
     @GetMapping("/status")
     public ResponseEntity<Boolean> hasUserAppliedToAnnouncement(
             @RequestParam("announcementId") Long announcementId,
             @RequestParam("userId") Long userId) {
-        
+
         boolean hasApplied = applicationService.hasUserAppliedToAnnouncement(announcementId, userId);
         return ResponseEntity.status(HttpStatus.OK).body(hasApplied);
     }

@@ -163,6 +163,14 @@ public class ApplicationService {
         applicationRepository.bulkRejectApplications(announcementId, applicationId);
     }
 
+    /**
+     * 특정 사용자가 특정 공고에 이미 지원했는지 여부를 확인합니다.
+     * 프론트엔드에서 지원 상태 표시 및 중복 지원 방지 UI 처리를 위해 사용됩니다.
+     *
+     * @param announcementId 공고 ID
+     * @param userId 사용자 ID
+     * @return 지원 이력이 있으면 true, 없으면 false
+     */
     @Transactional(readOnly = true)
     public boolean hasUserAppliedToAnnouncement(Long announcementId, Long userId) {
         return applicationRepository.findByUserIdAndAnnouncementId(userId, announcementId).isPresent();
