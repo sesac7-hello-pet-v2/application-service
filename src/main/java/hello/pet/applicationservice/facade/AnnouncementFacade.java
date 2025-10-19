@@ -1,7 +1,9 @@
 package hello.pet.applicationservice.facade;
 
+import feign.FeignException;
 import hello.pet.applicationservice.client.AnnouncementServiceClient;
 import hello.pet.applicationservice.dto.response.AnnouncementResponse;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -12,10 +14,18 @@ public class AnnouncementFacade {
     private final AnnouncementServiceClient announcementServiceClient;
 
     public AnnouncementResponse getAnnouncement(Long announcementId) {
-        return announcementServiceClient.getAnnouncementById(announcementId);
+        try {
+            return announcementServiceClient.getAnnouncementById(announcementId);
+        } catch (FeignException.NotFound e) {
+            throw new EntityNotFoundException("해당 번호의 공고를 찾을 수 없습니다. id=" + announcementId);
+        }
     }
 
     public void completeAnnouncement(Long announcementId) {
-        announcementServiceClient.completeAnnouncement(announcementId);
+        try {
+            announcementServiceClient.completeAnnouncement(announcementId);
+        } catch (FeignException.NotFound e) {
+            throw new EntityNotFoundException("해당 번호의 공고를 찾을 수 없습니다. id=" + announcementId);
+        }
     }
 }
