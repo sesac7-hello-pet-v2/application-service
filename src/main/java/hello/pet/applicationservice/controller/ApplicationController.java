@@ -2,9 +2,9 @@ package hello.pet.applicationservice.controller;
 
 import hello.pet.applicationservice.dto.request.ApplicationCreateRequest;
 import hello.pet.applicationservice.dto.request.ApplicationPageRequest;
+import hello.pet.applicationservice.dto.response.AnnouncementApplicationsPageResponse;
 import hello.pet.applicationservice.dto.response.ApplicationApprovalResponse;
 import hello.pet.applicationservice.dto.response.ApplicationResponse;
-import hello.pet.applicationservice.dto.response.ShelterApplicationsPageResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationPageResponse;
 import hello.pet.applicationservice.dto.response.detail.ApplicationDetailResponse;
 import hello.pet.applicationservice.service.ApplicationService;
@@ -63,13 +63,13 @@ public class ApplicationController {
     }
 
     @GetMapping("/announcement/{announcementId}")
-    public ResponseEntity<ShelterApplicationsPageResponse> getShelterApplications(
+    public ResponseEntity<AnnouncementApplicationsPageResponse> getAnnouncementApplications(
             @PathVariable Long announcementId,
             @RequestHeader("X-User-Id") Long shelterId,
             @ModelAttribute @Valid ApplicationPageRequest request) {
 
-        ShelterApplicationsPageResponse response =
-                applicationService.getShelterApplications(announcementId, request, shelterId);
+        AnnouncementApplicationsPageResponse response =
+                applicationService.getAnnouncementApplications(announcementId, request, shelterId);
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 

@@ -5,10 +5,10 @@ import hello.pet.applicationservice.exception.ForbiddenOperationException;
 import hello.pet.applicationservice.facade.AnnouncementFacade;
 import hello.pet.applicationservice.dto.request.ApplicationCreateRequest;
 import hello.pet.applicationservice.dto.request.ApplicationPageRequest;
+import hello.pet.applicationservice.dto.response.AnnouncementApplicationResponse;
+import hello.pet.applicationservice.dto.response.AnnouncementApplicationsPageResponse;
 import hello.pet.applicationservice.dto.response.ApplicationApprovalResponse;
 import hello.pet.applicationservice.dto.response.ApplicationResponse;
-import hello.pet.applicationservice.dto.response.ShelterApplicationResponse;
-import hello.pet.applicationservice.dto.response.ShelterApplicationsPageResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationPageResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationResponse;
 import hello.pet.applicationservice.dto.response.detail.ApplicationDetailResponse;
@@ -65,9 +65,9 @@ public class ApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public ShelterApplicationsPageResponse getShelterApplications(Long announcementId,
-                                                                  ApplicationPageRequest request,
-                                                                  Long shelterId) {
+    public AnnouncementApplicationsPageResponse getAnnouncementApplications(Long announcementId,
+                                                                            ApplicationPageRequest request,
+                                                                            Long shelterId) {
 
         AnnouncementResponse announcement = announcementFacade.getAnnouncement(announcementId);
 
@@ -78,11 +78,11 @@ public class ApplicationService {
         Pageable pageable = request.toPageable();
         Page<Application> page = applicationRepository.findByAnnouncementId(announcementId, pageable);
 
-        List<ShelterApplicationResponse> content = page.stream()
-                                                       .map(ShelterApplicationResponse::from)
-                                                       .toList();
+        List<AnnouncementApplicationResponse> content = page.stream()
+                                                            .map(AnnouncementApplicationResponse::from)
+                                                            .toList();
 
-        return ShelterApplicationsPageResponse.of(pageable, content, page.getTotalElements(), announcement);
+        return AnnouncementApplicationsPageResponse.of(pageable, content, page.getTotalElements(), announcement);
     }
 
     @Transactional(readOnly = true)
