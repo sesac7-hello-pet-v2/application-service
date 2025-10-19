@@ -21,9 +21,9 @@ public class AnnouncementFacade {
         }
     }
 
-    public void completeAnnouncement(Long announcementId) {
+    public void completeAnnouncement(Long announcementId, Long userId) {
         try {
-            announcementServiceClient.completeAnnouncement(announcementId);
+            announcementServiceClient.completeAnnouncement(announcementId, userId);
         } catch (FeignException.NotFound e) {
             throw new EntityNotFoundException("해당 번호의 공고를 찾을 수 없습니다. id=" + announcementId);
         }

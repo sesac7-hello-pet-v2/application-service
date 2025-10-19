@@ -137,7 +137,7 @@ public class ApplicationService {
         approveAndRejectApplications(announcementId, applicationId);
 
         // 공고 상태를 완료로 변경
-        announcementFacade.completeAnnouncement(announcementId);
+        announcementFacade.completeAnnouncement(announcementId, userId);
 
         return ApplicationApprovalResponse.of(announcementId, applicationId);
     }
