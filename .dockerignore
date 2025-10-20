@@ -1,0 +1,42 @@
+# 빌드 결과물
+build/
+.gradle/
+bin/
+out/
+
+# 버전 관리
+.git
+.gitignore
+.gitattributes
+
+# IDE 설정
+.idea/
+.vscode/
+.settings/
+*.iml
+.classpath
+.project
+
+# Docker 관련
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 문서
+README.md
+*.md
+docs/
+
+# 로그 및 임시 파일
+*.log
+*.tmp
+*.swp
+logs/
+
+# 환경 변수 파일 (보안)
+.env
+.env.*
+
+# OS 파일
+.DS_Store
+Thumbs.db
