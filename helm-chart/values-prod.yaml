@@ -1,0 +1,48 @@
+# Production Environment Values
+# helm install application-service ./helm-chart -f values-prod.yaml
+
+# Prod 환경은 고가용성 확보
+replicaCount: 3
+
+image:
+  # 운영 환경에서는 특정 버전 태그 사용 (latest 금지)
+  tag: "1.0.0"
+  pullPolicy: Always
+
+# Prod 환경 리소스 증가
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+# Spring Boot Profile
+spring:
+  profile: prod
+
+# Prod RDS 엔드포인트
+database:
+  url: "jdbc:postgresql://prod-rds-endpoint.region.rds.amazonaws.com:5432/db-application"
+  username: "hellopetadmin"
+  # password는 배포 시 --set 옵션으로 주입 (GitHub Secrets 사용)
+
+# Prod 환경에서는 GitHub Secrets로 관리
+secret:
+  create: true  # Helm으로 Secret 생성
+  externalSecret:
+    enabled: false
+
+# HPA 활성화 (트래픽에 따른 자동 스케일링)
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Pod Disruption Budget (선택사항, 추후 추가 가능)
+# podDisruptionBudget:
+#   enabled: true
+#   minAvailable: 2
