@@ -1,0 +1,52 @@
+{{- $fullName := include "application-service.fullname" . -}}
+{{- $namespace := include "application-service.namespace" . -}}
+
+✅ application-service has been deployed!
+
+📦 Release Information:
+   Name:      {{ .Release.Name }}
+   Namespace: {{ $namespace }}
+   Revision:  {{ .Release.Revision }}
+
+🔍 Check the status:
+   kubectl get all -n {{ $namespace }}
+   kubectl get pods -n {{ $namespace }} -l "app.kubernetes.io/name={{ include "application-service.name" . }}"
+
+📊 View logs:
+   kubectl logs -f deployment/{{ $fullName }} -n {{ $namespace }}
+
+🌐 Service Information:
+   Type: {{ .Values.service.type }}
+   Port: {{ .Values.service.port }}
+
+{{- if eq .Values.service.type "ClusterIP" }}
+
+   To access the application from your local machine:
+   kubectl port-forward svc/{{ $fullName }} {{ .Values.service.port }}:{{ .Values.service.port }} -n {{ $namespace }}
+
+   Then visit: http://localhost:{{ .Values.service.port }}/actuator/health
+{{- else if eq .Values.service.type "NodePort" }}
+
+   Get the application URL:
+   export NODE_PORT=$(kubectl get svc {{ $fullName }} -n {{ $namespace }} -o jsonpath='{.spec.ports[0].nodePort}')
+   export NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[0].address}')
+   echo "http://$NODE_IP:$NODE_PORT/actuator/health"
+{{- end }}
+
+⚙️  Configuration:
+   Replicas: {{ .Values.replicaCount }}
+   Image:    {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+   Profile:  {{ .Values.spring.profile }}
+
+{{- if .Values.autoscaling.enabled }}
+   HPA:      Enabled ({{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }} replicas)
+{{- end }}
+
+{{- if not .Values.database.password }}
+
+⚠️  WARNING: Database password is not set!
+   Please update the Secret with your RDS password:
+   kubectl edit secret {{ $fullName }}-secret -n {{ $namespace }}
+{{- end }}
+
+📚 For more information, check the README.md file.

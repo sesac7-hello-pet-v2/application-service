@@ -1,0 +1,36 @@
+# Development Environment Values
+# helm install application-service ./helm-chart -f values-dev.yaml
+
+# Dev 환경은 리소스를 절약
+replicaCount: 1
+
+image:
+  tag: "dev-latest"
+  pullPolicy: IfNotPresent
+
+# Dev 환경 리소스 축소
+resources:
+  limits:
+    cpu: 250m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Spring Boot Profile
+spring:
+  profile: dev
+
+# Dev RDS 엔드포인트
+database:
+  url: "jdbc:postgresql://dev-rds-endpoint.region.rds.amazonaws.com:5432/db-application-dev"
+  username: "hellopetadmin"
+  # password는 배포 시 --set 옵션으로 주입 (GitHub Secrets 사용)
+
+# Dev 환경에서는 Secret을 Helm으로 생성
+secret:
+  create: true
+
+# HPA 비활성화
+autoscaling:
+  enabled: false
