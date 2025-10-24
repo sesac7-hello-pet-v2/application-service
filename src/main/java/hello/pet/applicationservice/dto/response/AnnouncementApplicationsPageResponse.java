@@ -8,23 +8,23 @@ import org.springframework.data.domain.Pageable;
 
 @Getter
 @Builder
-public class ShelterApplicationsPageResponse {
+public class AnnouncementApplicationsPageResponse {
     private int page;
     private int size;
     private int totalPages;
     private long totalElements;
     private Long announcementId;
     private LocalDateTime announcementCreatedAt;
-    private List<ShelterApplicationResponse> applications;
+    private List<AnnouncementApplicationResponse> applications;
 
-    public static ShelterApplicationsPageResponse of(Pageable pageable
-            , List<ShelterApplicationResponse> content
+    public static AnnouncementApplicationsPageResponse of(Pageable pageable
+            , List<AnnouncementApplicationResponse> content
             , long totalElements
             , AnnouncementResponse announcement) {
 
         int totalPages = (int) Math.ceil((double) totalElements / pageable.getPageSize());
 
-        return ShelterApplicationsPageResponse.builder()
+        return AnnouncementApplicationsPageResponse.builder()
                                               .page(pageable.getPageNumber())
                                               .size(pageable.getPageSize())
                                               .totalElements(totalElements)

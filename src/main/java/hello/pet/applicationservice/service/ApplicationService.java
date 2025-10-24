@@ -5,10 +5,10 @@ import hello.pet.applicationservice.exception.ForbiddenOperationException;
 import hello.pet.applicationservice.facade.AnnouncementFacade;
 import hello.pet.applicationservice.dto.request.ApplicationCreateRequest;
 import hello.pet.applicationservice.dto.request.ApplicationPageRequest;
+import hello.pet.applicationservice.dto.response.AnnouncementApplicationResponse;
+import hello.pet.applicationservice.dto.response.AnnouncementApplicationsPageResponse;
 import hello.pet.applicationservice.dto.response.ApplicationApprovalResponse;
 import hello.pet.applicationservice.dto.response.ApplicationResponse;
-import hello.pet.applicationservice.dto.response.ShelterApplicationResponse;
-import hello.pet.applicationservice.dto.response.ShelterApplicationsPageResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationPageResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationResponse;
 import hello.pet.applicationservice.dto.response.detail.ApplicationDetailResponse;
@@ -65,9 +65,9 @@ public class ApplicationService {
     }
 
     @Transactional(readOnly = true)
-    public ShelterApplicationsPageResponse getShelterApplications(Long announcementId,
-                                                                  ApplicationPageRequest request,
-                                                                  Long shelterId) {
+    public AnnouncementApplicationsPageResponse getAnnouncementApplications(Long announcementId,
+                                                                            ApplicationPageRequest request,
+                                                                            Long shelterId) {
 
         AnnouncementResponse announcement = announcementFacade.getAnnouncement(announcementId);
 
@@ -78,11 +78,11 @@ public class ApplicationService {
         Pageable pageable = request.toPageable();
         Page<Application> page = applicationRepository.findByAnnouncementId(announcementId, pageable);
 
-        List<ShelterApplicationResponse> content = page.stream()
-                                                       .map(ShelterApplicationResponse::from)
-                                                       .toList();
+        List<AnnouncementApplicationResponse> content = page.stream()
+                                                            .map(AnnouncementApplicationResponse::from)
+                                                            .toList();
 
-        return ShelterApplicationsPageResponse.of(pageable, content, page.getTotalElements(), announcement);
+        return AnnouncementApplicationsPageResponse.of(pageable, content, page.getTotalElements(), announcement);
     }
 
     @Transactional(readOnly = true)
@@ -137,7 +137,7 @@ public class ApplicationService {
         approveAndRejectApplications(announcementId, applicationId);
 
         // 공고 상태를 완료로 변경
-        announcementFacade.completeAnnouncement(announcementId);
+        announcementFacade.completeAnnouncement(announcementId, userId);
 
         return ApplicationApprovalResponse.of(announcementId, applicationId);
     }
@@ -163,6 +163,14 @@ public class ApplicationService {
         applicationRepository.bulkRejectApplications(announcementId, applicationId);
     }
 
+    /**
+     * 특정 사용자가 특정 공고에 이미 지원했는지 여부를 확인합니다.
+     * 프론트엔드에서 지원 상태 표시 및 중복 지원 방지 UI 처리를 위해 사용됩니다.
+     *
+     * @param announcementId 공고 ID
+     * @param userId 사용자 ID
+     * @return 지원 이력이 있으면 true, 없으면 false
+     */
     @Transactional(readOnly = true)
     public boolean hasUserAppliedToAnnouncement(Long announcementId, Long userId) {
         return applicationRepository.findByUserIdAndAnnouncementId(userId, announcementId).isPresent();

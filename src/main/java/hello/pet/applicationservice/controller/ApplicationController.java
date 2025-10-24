@@ -2,9 +2,9 @@ package hello.pet.applicationservice.controller;
 
 import hello.pet.applicationservice.dto.request.ApplicationCreateRequest;
 import hello.pet.applicationservice.dto.request.ApplicationPageRequest;
+import hello.pet.applicationservice.dto.response.AnnouncementApplicationsPageResponse;
 import hello.pet.applicationservice.dto.response.ApplicationApprovalResponse;
 import hello.pet.applicationservice.dto.response.ApplicationResponse;
-import hello.pet.applicationservice.dto.response.ShelterApplicationsPageResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationPageResponse;
 import hello.pet.applicationservice.dto.response.detail.ApplicationDetailResponse;
 import hello.pet.applicationservice.service.ApplicationService;
@@ -63,13 +63,13 @@ public class ApplicationController {
     }
 
     @GetMapping("/announcement/{announcementId}")
-    public ResponseEntity<ShelterApplicationsPageResponse> getShelterApplications(
+    public ResponseEntity<AnnouncementApplicationsPageResponse> getAnnouncementApplications(
             @PathVariable Long announcementId,
             @RequestHeader("X-User-Id") Long shelterId,
             @ModelAttribute @Valid ApplicationPageRequest request) {
 
-        ShelterApplicationsPageResponse response =
-                applicationService.getShelterApplications(announcementId, request, shelterId);
+        AnnouncementApplicationsPageResponse response =
+                applicationService.getAnnouncementApplications(announcementId, request, shelterId);
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
@@ -85,11 +85,20 @@ public class ApplicationController {
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
+    /**
+     * 특정 사용자가 특정 공고에 이미 지원했는지 여부를 조회합니다.
+     * 프론트엔드에서 공고 상세 페이지 렌더링 시 지원 상태를 확인하고,
+     * "지원하기" 버튼 활성화/비활성화 처리를 위해 사용됩니다.
+     *
+     * @param announcementId 공고 ID
+     * @param userId 사용자 ID
+     * @return 지원했으면 true, 아니면 false
+     */
     @GetMapping("/status")
     public ResponseEntity<Boolean> hasUserAppliedToAnnouncement(
             @RequestParam("announcementId") Long announcementId,
             @RequestParam("userId") Long userId) {
-        
+
         boolean hasApplied = applicationService.hasUserAppliedToAnnouncement(announcementId, userId);
         return ResponseEntity.status(HttpStatus.OK).body(hasApplied);
     }

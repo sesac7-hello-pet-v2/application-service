@@ -6,13 +6,13 @@ import lombok.Getter;
 
 @Getter
 @Builder
-public class ShelterApplicationResponse {
+public class AnnouncementApplicationResponse {
     private Long applicationId;
     private String applicationStatusLabel;
     private Long userId;
 
-    public static ShelterApplicationResponse from(Application application) {
-        return ShelterApplicationResponse.builder()
+    public static AnnouncementApplicationResponse from(Application application) {
+        return AnnouncementApplicationResponse.builder()
                                          .applicationId(application.getId())
                                          .applicationStatusLabel(application.getStatus().getLabel())
                                          .userId(application.getUserId())
