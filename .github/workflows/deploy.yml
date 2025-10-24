@@ -1,111 +1,231 @@
+##########################################################
+# 🐳 GitHub Actions Workflow: CI/CD for application-service
+# 목적:
+#   1) 코드 push 시 Docker 이미지 빌드
+#   2) Amazon ECR에 푸시
+#   3) Argo CD가 감시하는 Manifest 저장소의 Helm values(.image.tag) 자동 갱신
+#
+# 사용 대상:
+#   - 브랜치: release(운영), pre-release(스테이징)
+#   - application-service 단일 이미지 배포 파이프라인
+#
+# 필수 사전 준비(리포지토리 Secrets):
+#   - ECR_REPOSITORY                 예) hello-pet/application-service
+#   - AWS_REGION                     예) ap-northeast-2
+#   - AWS_ROLE_TO_ASSUME             예) arn:aws:iam::<ACCOUNT_ID>:role/<ROLE_NAME>
+#   - MANIFEST_REPO                  예) org/hello-pet-manifests
+#   - MANIFEST_REPO_PAT              예) Manifest 저장소에 푸시할 수 있는 GitHub 토큰
+#   - MANIFEST_FILE_PATH_PROD        예) charts/application-service/values-prod.yaml
+#   - MANIFEST_FILE_PATH_STAGING     예) charts/application-service/values-staging.yaml
+##########################################################
+
 name: CI/CD - Build and Push to ECR
 
-# release, pre-release 브랜치에 푸시될 때 워크플로우 실행
+##########################################################
+# 트리거
+# - release / pre-release 브랜치에 push 시 자동 실행
+# - 필요 시 수동 실행(workflow_dispatch)도 허용
+##########################################################
 on:
   push:
-    branches:
-      - release
-      - pre-release
-  workflow_dispatch:  # 수동 실행 옵션 (테스트용)
+    branches: [ release, pre-release ]
+  workflow_dispatch:
 
-# 워크플로우에 필요한 권한 설정
+##########################################################
+# 권한
+# - contents: read    → checkout용
+# - id-token: write   → AWS OIDC(역할 가정)용
+##########################################################
 permissions:
-  contents: read # 리포지토리 코드를 checkout 하기 위함
-  id-token: write # AWS OIDC 인증을 위함
+  contents: read
+  id-token: write
 
+##########################################################
+# 경합(concurrency) 제어
+# - 동일 브랜치에서 중복 실행 시 이전 작업을 취소하여 충돌 방지
+##########################################################
+concurrency:
+  group: ci/${{ github.ref }}
+  cancel-in-progress: true
+
+##########################################################
+# 공용 환경 변수
+##########################################################
+env:
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+
+########################################################
+# 워크플로우 내에서 수행할 실제 작업(Job)들을 정의
+# - 각 Job은 여러 Step으로 구성되어 순차적으로 실행됨
+# - 여러 Job을 정의하면 병렬 실행 가능하며, 필요 시 needs로 실행 순서 제어 가능
+# - 이 Job에서는 Docker 빌드 → ECR 푸시 → Manifest 리포 Helm values 태그 갱신 수행
+########################################################
 jobs:
-  build-and-deploy:
+  build-and-publish:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 소스 코드 체크아웃
+      ####################################################
+      # Step 1. 현재 리포지토리 체크아웃
+      ####################################################
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      # 참고: Dockerfile에서 multi-stage build로 Gradle 빌드를 수행하므로
-      # GitHub Actions에서 별도로 빌드할 필요 없음
-
-      # 2. AWS 자격 증명 설정 (OIDC 사용)
+      ####################################################
+      # Step 2. AWS 자격 증명(OIDC) 구성
+      # - GitHub → AWS IAM Role 가정(AssumeRole)
+      # - 별도 액세스 키 보관 불필요
+      ####################################################
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      # 3. Amazon ECR 로그인
+      ####################################################
+      # Step 3. Amazon ECR 로그인 (docker login)
+      ####################################################
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 4. 이미지 태그 생성 (Git SHA 사용)
+      ####################################################
+      # Step 3-1. Docker Buildx 설정
+      # - GHA 캐시를 사용한 빌드 속도 향상
+      ####################################################
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      ####################################################
+      # Step 4. 이미지 태그 생성
+      # - 불변 배포 원칙을 위해 커밋 SHA 7자리 사용 (latest 금지)
+      ####################################################
       - name: Generate Image Tag
         id: image-tag
-        run: echo "tag=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
-
-      # 5. ECR 이미지 URI 정의
-      - name: Define ECR Image URI
-        id: ecr-image
         run: |
-          registry=${{ steps.login-ecr.outputs.registry }}
-          repo=${{ secrets.ECR_REPOSITORY }}
-          tag=${{ steps.image-tag.outputs.tag }}
-          echo "uri=${registry}/${repo}:${tag}" >> $GITHUB_OUTPUT
-          echo "latest_uri=${registry}/${repo}:latest" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          TAG="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-      # 6. Docker 이미지 빌드 및 ECR 푸시 (Git SHA + latest 태그)
+      ####################################################
+      # Step 5. 브랜치에 따라 배포 타겟/values 경로 설정
+      # - release      → prod,    values-prod.yaml
+      # - pre-release  → staging, values-staging.yaml
+      ####################################################
+      - name: Set deploy target by branch
+        id: target
+        run: |
+          set -euo pipefail
+          case "${GITHUB_REF_NAME}" in
+            release)
+              echo "ENV_NAME=prod" >> "$GITHUB_ENV"
+              echo "MANIFEST_FILE_PATH=${{ secrets.MANIFEST_FILE_PATH_PROD }}" >> "$GITHUB_ENV"
+              ;;
+            pre-release)
+              echo "ENV_NAME=staging" >> "$GITHUB_ENV"
+              echo "MANIFEST_FILE_PATH=${{ secrets.MANIFEST_FILE_PATH_STAGING }}" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Unsupported branch: ${GITHUB_REF_NAME}"
+              exit 1
+              ;;
+          esac
+
+      ####################################################
+      # Step 6. ECR 이미지 URI 구성
+      # - 예) <acct>.dkr.ecr.ap-northeast-2.amazonaws.com/hello-pet/application-service:<TAG>
+      ####################################################
+      - name: Compose ECR Image URIs
+        id: ecr
+        run: |
+          set -euo pipefail
+          echo "REGISTRY=${{ steps.login-ecr.outputs.registry }}" >> "$GITHUB_ENV"
+          echo "IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${TAG}" >> "$GITHUB_ENV"
+
+      ####################################################
+      # Step 7. Docker 이미지 빌드 & ECR 푸시
+      # - buildx + GHA 캐시를 사용해 반복 빌드 속도 개선(옵션)
+      ####################################################
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: |
-            ${{ steps.ecr-image.outputs.uri }}
-            ${{ steps.ecr-image.outputs.latest_uri }}
+          tags: ${{ env.IMAGE_URI }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      # ==================================
-      # 7. Manifest 리포지토리 업데이트 (주석 처리)
-      # ==================================
+      ####################################################
+      # Step 8. Manifest 저장소 체크아웃
+      # - Argo CD가 감시하는 별도 저장소
+      # - Helm values(.image.tag)만 갱신하여 GitOps 트리거
+      ####################################################
+      - name: Checkout Manifest Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.MANIFEST_REPO }}
+          token: ${{ secrets.MANIFEST_REPO_PAT }}
+          path: manifest-repo
 
-      # # 7-1. Manifest 리포지토리 체크아웃 (별도 경로에)
-      # - name: Checkout Manifest Repo
-      #   uses: actions/checkout@v4
-      #   with:
-      #     repository: ${{ secrets.MANIFEST_REPO }}
-      #     token: ${{ secrets.MANIFEST_REPO_PAT }}
-      #     path: 'manifest-repo' # 충돌 방지를 위해 하위 디렉토리에 체크아웃
+      ####################################################
+      # Step 9. yq 설치 (YAML 편집용 CLI)
+      ####################################################
+      - name: Install yq
+        run: |
+          set -euo pipefail
+          sudo wget -q https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -O /usr/bin/yq
+          sudo chmod +x /usr/bin/yq
+          yq --version
 
-      # # 7-2. Manifest 파일의 이미지 태그 업데이트 (yq 사용)
-      # - name: Update Manifest File (using yq)
-      #   run: |
-      #     # yq 설치
-      #     sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
-      #     sudo chmod +x /usr/bin/yq
+      ####################################################
+      # Step 10. Helm values.yaml의 .image.tag 갱신
+      # - .image 키가 없으면 생성한 뒤 .image.tag에 새 TAG 설정
+      # - (필요 시 .image.repository도 함께 고정 가능)
+      ####################################################
+      - name: Update image tag in Helm values
+        working-directory: manifest-repo
+        env:
+          TAG: ${{ steps.image-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          FILE="${{ env.MANIFEST_FILE_PATH }}"
+          : "${FILE:?MANIFEST_FILE_PATH not set}"
+          : "${TAG:?TAG not set}"
 
-      #     MANIFEST_FILE_PATH="manifest-repo/${{ secrets.MANIFEST_FILE_PATH }}"
-      #     NEW_TAG="${{ steps.image-tag.outputs.tag }}" # 예: 039b947
+          if [ ! -f "$FILE" ]; then
+            echo "Error: Manifest file not found: $FILE"
+            exit 1
+          fi
 
-      #     echo "Updating $MANIFEST_FILE_PATH with new tag: $NEW_TAG"
+          echo "Updating $FILE: .image.tag -> ${TAG}"
+          # 필요 시 아래 라인을 풀어 .image.repository도 강제 설정
+          # yq -i '.image = (.image // {}) | .image.repository = "'"${{ env.REGISTRY }}/${{ env.ECR_REPOSITORY }}"'"' "$FILE"
 
-      #     # yq를 사용해 spec.source.helm.parameters 배열에서
-      #     # name이 'image.tag'인 항목을 찾아 그 'value'를 NEW_TAG로 변경
-      #     yq -i '.spec.source.helm.parameters[] |= select(.name == "image.tag").value = "'${NEW_TAG}'"' ${MANIFEST_FILE_PATH}
+          yq -i '.image = (.image // {}) | .image.tag = "'"${TAG}"'"' "$FILE"
 
-      #     echo "Manifest file updated:"
-      #     cat ${MANIFEST_FILE_PATH}
+          echo "=== After update ==="
+          cat "$FILE"
 
-      # # 7-3. 변경 사항 커밋 및 푸시
-      # - name: Commit and Push to Manifest Repo
-      #   run: |
-      #     cd manifest-repo
-      #     git config --global user.name 'GitHub Actions Bot'
-      #     git config --global user.email 'github-actions-bot@users.noreply.github.com'
-      #     git add .
+      ####################################################
+      # Step 11. Manifest 저장소 커밋 & 푸시
+      # - 변경 발생 시에만 커밋
+      # - Argo CD가 변경을 감지하여 동기화 실행
+      ####################################################
+      - name: Commit and Push to Manifest Repo
+        working-directory: manifest-repo
+        run: |
+          set -euo pipefail
+          git config user.name 'GitHub Actions Bot'
+          git config user.email 'github-actions-bot@users.noreply.github.com'
 
-      #     # 커밋할 변경 사항이 있는지 확인
-      #     if git diff-index --quiet HEAD; then
-      #       echo "No changes to commit."
-      #     else
-      #       git commit -m "Update application-service image to ${{ steps.image-tag.outputs.tag }}"
-      #       git push
-      #       echo "Changes pushed to manifest repo."
-      #     fi
+          git add .
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "application-service: image -> ${REGISTRY}/${ECR_REPOSITORY}:${TAG} (${ENV_NAME})"
+            git push
+            echo "Manifest repository updated and pushed."
+          fi
