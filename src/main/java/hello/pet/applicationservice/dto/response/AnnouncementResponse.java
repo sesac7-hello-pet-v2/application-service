@@ -11,6 +11,7 @@ import lombok.NoArgsConstructor;
 public class AnnouncementResponse {
     private Long id;
     private Long shelterId;
+    private Long petId;
     private String breed;
     private String gender;
     private String health;

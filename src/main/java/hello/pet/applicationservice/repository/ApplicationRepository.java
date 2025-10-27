@@ -25,7 +25,7 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
                 SET a.status = 'REJECTED'
                 WHERE a.announcementId = :announcementId
                 AND a.id != :applicationId
-                AND a.status = 'PENDING'
+                AND a.status IN ('SUBMITTED', 'UNDER_REVIEW')
             """)
     int bulkRejectApplications(@Param("announcementId") Long announcementId,
                                @Param("applicationId") Long applicationId);

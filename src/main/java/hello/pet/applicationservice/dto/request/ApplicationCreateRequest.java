@@ -49,10 +49,11 @@ public class ApplicationCreateRequest {
     @NotNull(message = "동의 정보는 필수 입력 항목입니다.")
     private AgreementInfoRequest agreement;
 
-    public Application toEntity(Long userId, Long announcementId) {
+    public Application toEntity(Long userId, Long announcementId, Long petId) {
         return Application.builder()
                           .userId(userId)
                           .announcementId(announcementId)
+                          .petId(petId)
                           .reason(reason)
                           .housingInfo(HousingInfo.from(housingInfo))
                           .familyInfo(FamilyInfo.from(familyInfo))

@@ -40,6 +40,9 @@ public class Application {
     @Column(name = "announcement_id", nullable = false)
     private Long announcementId;
 
+    @Column(name = "pet_id", nullable = false)
+    private Long petId;
+
     @Column(nullable = false, columnDefinition = "TEXT")
     private String reason;
 
@@ -66,7 +69,7 @@ public class Application {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private ApplicationStatus status = ApplicationStatus.PENDING;
+    private ApplicationStatus status = ApplicationStatus.SUBMITTED;
 
     @CreationTimestamp
     private LocalDateTime createdAt;
@@ -74,12 +77,13 @@ public class Application {
     private LocalDateTime processedAt;
 
     @Builder
-    public Application(Long userId, Long announcementId, String reason, HousingInfo housingInfo,
+    public Application(Long userId, Long announcementId, Long petId, String reason, HousingInfo housingInfo,
                        FamilyInfo familyInfo, CareInfo careInfo, FinancialInfo financialInfo,
                        PetExperienceInfo petExperienceInfo, FuturePlanInfo futurePlanInfo,
                        AgreementInfo agreementInfo) {
         this.userId = userId;
         this.announcementId = announcementId;
+        this.petId = petId;
         this.reason = reason;
         this.housingInfo = housingInfo;
         this.familyInfo = familyInfo;
@@ -90,17 +94,13 @@ public class Application {
         this.agreementInfo = agreementInfo;
     }
 
-    public void approve() {
-        if (this.status != ApplicationStatus.PENDING) {
+    public void changeStatus(ApplicationStatus newStatus) {
+        if (this.status == ApplicationStatus.APPROVED || this.status == ApplicationStatus.REJECTED) {
             throw new AlreadyProcessedApplicationException();
         }
-        this.status = ApplicationStatus.APPROVED;
-        this.processedAt = LocalDateTime.now();
-    }
+        this.status = newStatus;
 
-    public void reject() {
-        if (this.status == ApplicationStatus.PENDING) {
-            this.status = ApplicationStatus.REJECTED;
+        if (newStatus == ApplicationStatus.APPROVED || newStatus == ApplicationStatus.REJECTED) {
             this.processedAt = LocalDateTime.now();
         }
     }
