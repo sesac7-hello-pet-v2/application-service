@@ -81,7 +81,7 @@ public class ApplicationController {
             @RequestHeader("X-User-Role") String userRole) {
 
         ApplicationApprovalResponse response =
-                applicationService.processApplicationApproval(announcementId, applicationId, userId, userRole);
+                applicationService.approveApplication(announcementId, applicationId, userId, userRole);
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
