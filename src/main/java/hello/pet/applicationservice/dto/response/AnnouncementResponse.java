@@ -1,5 +1,6 @@
 package hello.pet.applicationservice.dto.response;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -19,7 +20,7 @@ public class AnnouncementResponse {
     private int age;
     private String shelterName;
     private LocalDateTime createdAt;
-    private LocalDateTime endDate;
+    private LocalDate endDate;
     private String imageUrl;
     private String announcementStatus;
     private String animalType;

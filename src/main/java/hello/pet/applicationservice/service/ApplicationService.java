@@ -24,11 +24,13 @@ import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -173,5 +175,35 @@ public class ApplicationService {
     @Transactional(readOnly = true)
     public boolean hasUserAppliedToAnnouncement(Long announcementId, Long userId) {
         return applicationRepository.findByUserIdAndAnnouncementId(userId, announcementId).isPresent();
+    }
+
+    /**
+     * 공고 마감 시 해당 공고의 모든 신청 상태를 UNDER_REVIEW로 변경
+     * announcement-service의 스케줄러에서 호출됨
+     *
+     * @param announcementId 마감된 공고 ID
+     */
+    public void updateApplicationsToUnderReviewForClosedAnnouncement(Long announcementId) {
+        log.info("공고 ID {}의 모든 신청을 UNDER_REVIEW 상태로 변경 시작", announcementId);
+
+        // 해당 공고의 모든 SUBMITTED 상태 신청서 조회
+        List<Application> pendingApplications =
+                applicationRepository.findByAnnouncementIdAndStatus(announcementId, ApplicationStatus.SUBMITTED);
+
+        if (pendingApplications.isEmpty()) {
+            log.info("공고 ID {}에 대기 중인 신청이 없습니다.", announcementId);
+            return;
+        }
+
+        // 각 신청서의 상태를 UNDER_REVIEW로 변경
+        for (Application application : pendingApplications) {
+            application.changeStatus(ApplicationStatus.UNDER_REVIEW);
+            log.debug("신청 ID {} 상태를 UNDER_REVIEW로 변경", application.getId());
+        }
+
+        // 변경 사항 저장
+        applicationRepository.saveAll(pendingApplications);
+
+        log.info("공고 ID {}의 {} 건의 신청을 UNDER_REVIEW 상태로 변경 완료", announcementId, pendingApplications.size());
     }
 }

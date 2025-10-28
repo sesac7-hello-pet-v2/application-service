@@ -2,6 +2,7 @@ package hello.pet.applicationservice.repository;
 
 import hello.pet.applicationservice.entity.Application;
 import hello.pet.applicationservice.entity.ApplicationStatus;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -35,4 +36,7 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
                                                              ApplicationStatus status);
 
     Optional<Application> findByUserIdAndAnnouncementId(Long userId, Long announcementId);
+
+    // 특정 공고의 특정 상태 신청서들 조회
+    List<Application> findByAnnouncementIdAndStatus(Long announcementId, ApplicationStatus status);
 }
