@@ -31,10 +31,6 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
     int bulkRejectApplications(@Param("announcementId") Long announcementId,
                                @Param("applicationId") Long applicationId);
 
-    Optional<Application> findByIdAndAnnouncementIdAndStatus(Long applicationId,
-                                                             Long announcementId,
-                                                             ApplicationStatus status);
-
     Optional<Application> findByUserIdAndAnnouncementId(Long userId, Long announcementId);
 
     // 특정 공고의 특정 상태 신청서들 조회
