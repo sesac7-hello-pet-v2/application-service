@@ -1,12 +1,10 @@
 package hello.pet.applicationservice.service;
 
-import hello.pet.applicationservice.dto.response.AnnouncementResponse;
-import hello.pet.applicationservice.exception.ForbiddenOperationException;
-import hello.pet.applicationservice.facade.AnnouncementFacade;
 import hello.pet.applicationservice.dto.request.ApplicationCreateRequest;
 import hello.pet.applicationservice.dto.request.ApplicationPageRequest;
 import hello.pet.applicationservice.dto.response.AnnouncementApplicationResponse;
 import hello.pet.applicationservice.dto.response.AnnouncementApplicationsPageResponse;
+import hello.pet.applicationservice.dto.response.AnnouncementResponse;
 import hello.pet.applicationservice.dto.response.ApplicationApprovalResponse;
 import hello.pet.applicationservice.dto.response.ApplicationResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationPageResponse;
@@ -14,21 +12,25 @@ import hello.pet.applicationservice.dto.response.UserApplicationResponse;
 import hello.pet.applicationservice.dto.response.detail.ApplicationDetailResponse;
 import hello.pet.applicationservice.entity.Application;
 import hello.pet.applicationservice.entity.ApplicationStatus;
-import hello.pet.applicationservice.repository.ApplicationRepository;
-import hello.pet.applicationservice.exception.AlreadyProcessedApplicationException;
 import hello.pet.applicationservice.exception.AnnouncementAlreadyCompletedException;
 import hello.pet.applicationservice.exception.AnnouncementApprovalPermissionException;
 import hello.pet.applicationservice.exception.ApplicationAlreadyApprovedException;
 import hello.pet.applicationservice.exception.DuplicateApplicationException;
+import hello.pet.applicationservice.exception.ForbiddenOperationException;
+import hello.pet.applicationservice.facade.AnnouncementFacade;
+import hello.pet.applicationservice.facade.PetServiceFacade;
+import hello.pet.applicationservice.repository.ApplicationRepository;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -36,6 +38,7 @@ public class ApplicationService {
 
     private final ApplicationRepository applicationRepository;
     private final AnnouncementFacade announcementFacade;
+    private final PetServiceFacade petServiceFacade;
 
     public void deleteApplication(Long id, Long userId) {
         Application application = applicationRepository.findById(id)
@@ -107,7 +110,8 @@ public class ApplicationService {
     public ApplicationResponse createApplication(ApplicationCreateRequest request, Long userId) {
         AnnouncementResponse announcement = announcementFacade.getAnnouncement(request.getAnnouncementId());
 
-        if ("COMPLETED".equals(announcement.getAnnouncementStatus())) {
+        // OPEN 상태일 때만 신청 가능
+        if (!"OPEN".equals(announcement.getAnnouncementStatus())) {
             throw new AnnouncementAlreadyCompletedException(announcement.getId());
         }
 
@@ -120,24 +124,31 @@ public class ApplicationService {
             throw new DuplicateApplicationException();
         }
 
-        Application application = request.toEntity(userId, announcement.getId());
+        Application application = request.toEntity(userId, announcement.getId(), announcement.getPetId());
         applicationRepository.save(application);
 
         return ApplicationResponse.from(application.getId());
     }
 
-    public ApplicationApprovalResponse processApplicationApproval(Long announcementId,
-                                                                  Long applicationId,
-                                                                  Long userId,
-                                                                  String userRole) {
+    public ApplicationApprovalResponse approveApplication(Long announcementId,
+                                                          Long applicationId,
+                                                          Long userId,
+                                                          String userRole) {
         // 보호소의 공고 승인 권한 검증
         validateShelterApprovalPermission(announcementId, userId, userRole);
 
-        // 해당 공고에 대해 신청서 승인 및 나머지 신청서 일괄 거절 처리
-        approveAndRejectApplications(announcementId, applicationId);
+        // 신청서 조회 및 승인
+        Application application = applicationRepository.findById(applicationId)
+                                                       .orElseThrow(() -> new EntityNotFoundException(
+                                                               "해당 번호의 입양 신청서를 찾을 수 없습니다. id=" + applicationId)
+                                                       );
+        application.changeStatus(ApplicationStatus.APPROVED);
 
-        // 공고 상태를 완료로 변경
+        // 같은 공고의 나머지 신청서들 일괄 거절
+        applicationRepository.bulkRejectApplications(announcementId, applicationId);
+
         announcementFacade.completeAnnouncement(announcementId, userId);
+        petServiceFacade.markAsAdopted(application.getPetId(), userId, userRole);
 
         return ApplicationApprovalResponse.of(announcementId, applicationId);
     }
@@ -153,26 +164,39 @@ public class ApplicationService {
         }
     }
 
-    private void approveAndRejectApplications(Long announcementId, Long applicationId) {
-        Application approvedApp = applicationRepository.findByIdAndAnnouncementIdAndStatus(
-                                                               applicationId, announcementId, ApplicationStatus.PENDING
-                                                       )
-                                                       .orElseThrow(AlreadyProcessedApplicationException::new);
-
-        approvedApp.approve();
-        applicationRepository.bulkRejectApplications(announcementId, applicationId);
-    }
-
     /**
      * 특정 사용자가 특정 공고에 이미 지원했는지 여부를 확인합니다.
      * 프론트엔드에서 지원 상태 표시 및 중복 지원 방지 UI 처리를 위해 사용됩니다.
      *
      * @param announcementId 공고 ID
-     * @param userId 사용자 ID
+     * @param userId         사용자 ID
      * @return 지원 이력이 있으면 true, 없으면 false
      */
     @Transactional(readOnly = true)
     public boolean hasUserAppliedToAnnouncement(Long announcementId, Long userId) {
         return applicationRepository.findByUserIdAndAnnouncementId(userId, announcementId).isPresent();
+    }
+
+    /**
+     * 공고 마감 시 해당 공고의 모든 신청 상태를 UNDER_REVIEW로 변경
+     * announcement-service의 스케줄러에서 호출됨
+     *
+     * @param announcementId 마감된 공고 ID
+     */
+    public void updateApplicationsToUnderReviewForClosedAnnouncement(Long announcementId) {
+        log.info("공고 ID {}의 모든 신청을 UNDER_REVIEW 상태로 변경 시작", announcementId);
+
+        // 벌크 업데이트로 해당 공고의 모든 SUBMITTED 상태를 UNDER_REVIEW로 변경
+        int updatedCount = applicationRepository.bulkUpdateStatus(
+                announcementId,
+                ApplicationStatus.SUBMITTED,
+                ApplicationStatus.UNDER_REVIEW
+        );
+
+        if (updatedCount == 0) {
+            log.info("공고 ID {}에 대기 중인 신청이 없습니다.", announcementId);
+        } else {
+            log.info("공고 ID {}의 신청 {}건을 UNDER_REVIEW 상태로 변경 완료", announcementId, updatedCount);
+        }
     }
 }

@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -81,7 +82,7 @@ public class ApplicationController {
             @RequestHeader("X-User-Role") String userRole) {
 
         ApplicationApprovalResponse response =
-                applicationService.processApplicationApproval(announcementId, applicationId, userId, userRole);
+                applicationService.approveApplication(announcementId, applicationId, userId, userRole);
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
@@ -101,5 +102,19 @@ public class ApplicationController {
 
         boolean hasApplied = applicationService.hasUserAppliedToAnnouncement(announcementId, userId);
         return ResponseEntity.status(HttpStatus.OK).body(hasApplied);
+    }
+
+    /**
+     * 공고 마감 시 해당 공고의 모든 신청 상태를 UNDER_REVIEW로 변경
+     * announcement-service의 스케줄러에서 호출됨
+     *
+     * @param announcementId 마감된 공고 ID
+     */
+    @PutMapping("/announcement/{announcementId}/close")
+    public ResponseEntity<Void> updateApplicationsToUnderReviewForClosedAnnouncement(
+            @PathVariable Long announcementId) {
+
+        applicationService.updateApplicationsToUnderReviewForClosedAnnouncement(announcementId);
+        return ResponseEntity.ok().build();
     }
 }
