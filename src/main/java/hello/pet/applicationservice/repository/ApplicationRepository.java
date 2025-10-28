@@ -2,7 +2,6 @@ package hello.pet.applicationservice.repository;
 
 import hello.pet.applicationservice.entity.Application;
 import hello.pet.applicationservice.entity.ApplicationStatus;
-import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -33,6 +32,16 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 
     Optional<Application> findByUserIdAndAnnouncementId(Long userId, Long announcementId);
 
-    // 특정 공고의 특정 상태 신청서들 조회
-    List<Application> findByAnnouncementIdAndStatus(Long announcementId, ApplicationStatus status);
+    // 특정 공고의 신청서 상태 일괄 변경
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            UPDATE Application a
+            SET a.status = :newStatus
+            WHERE a.announcementId = :announcementId
+            AND a.status = :currentStatus
+            """)
+    int bulkUpdateStatus(@Param("announcementId") Long announcementId,
+                         @Param("currentStatus") ApplicationStatus currentStatus,
+                         @Param("newStatus") ApplicationStatus newStatus);
 }

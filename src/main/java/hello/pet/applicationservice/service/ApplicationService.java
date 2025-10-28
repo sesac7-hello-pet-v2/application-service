@@ -186,24 +186,17 @@ public class ApplicationService {
     public void updateApplicationsToUnderReviewForClosedAnnouncement(Long announcementId) {
         log.info("공고 ID {}의 모든 신청을 UNDER_REVIEW 상태로 변경 시작", announcementId);
 
-        // 해당 공고의 모든 SUBMITTED 상태 신청서 조회
-        List<Application> pendingApplications =
-                applicationRepository.findByAnnouncementIdAndStatus(announcementId, ApplicationStatus.SUBMITTED);
+        // 벌크 업데이트로 해당 공고의 모든 SUBMITTED 상태를 UNDER_REVIEW로 변경
+        int updatedCount = applicationRepository.bulkUpdateStatus(
+                announcementId,
+                ApplicationStatus.SUBMITTED,
+                ApplicationStatus.UNDER_REVIEW
+        );
 
-        if (pendingApplications.isEmpty()) {
+        if (updatedCount == 0) {
             log.info("공고 ID {}에 대기 중인 신청이 없습니다.", announcementId);
-            return;
+        } else {
+            log.info("공고 ID {}의 신청 {}건을 UNDER_REVIEW 상태로 변경 완료", announcementId, updatedCount);
         }
-
-        // 각 신청서의 상태를 UNDER_REVIEW로 변경
-        for (Application application : pendingApplications) {
-            application.changeStatus(ApplicationStatus.UNDER_REVIEW);
-            log.debug("신청 ID {} 상태를 UNDER_REVIEW로 변경", application.getId());
-        }
-
-        // 변경 사항 저장
-        applicationRepository.saveAll(pendingApplications);
-
-        log.info("공고 ID {}의 {} 건의 신청을 UNDER_REVIEW 상태로 변경 완료", announcementId, pendingApplications.size());
     }
 }
