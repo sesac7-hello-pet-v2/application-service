@@ -67,7 +67,11 @@ public class ApplicationService {
                                                                "해당 번호의 입양 신청서를 찾을 수 없습니다. id=" + id)
                                                        );
 
-        return ApplicationDetailResponse.from(application);
+        UserResponse applicantUser = userServiceFacade.getUserDetail(application.getUserId());
+        AnnouncementResponse announcement = announcementFacade.getAnnouncement(application.getAnnouncementId());
+        UserResponse shelterUser = userServiceFacade.getUserDetail(announcement.getShelterId());
+
+        return ApplicationDetailResponse.from(application, applicantUser, shelterUser);
     }
 
     @Transactional(readOnly = true)
@@ -86,8 +90,10 @@ public class ApplicationService {
 
         List<AnnouncementApplicationResponse> content = page.stream()
                                                             .map(application -> {
-                                                                UserResponse user = userServiceFacade.getUserDetail(application.getUserId());
-                                                                return AnnouncementApplicationResponse.from(application, user);
+                                                                UserResponse user = userServiceFacade.getUserDetail(
+                                                                        application.getUserId());
+                                                                return AnnouncementApplicationResponse.from(application,
+                                                                        user);
                                                             })
                                                             .toList();
 
