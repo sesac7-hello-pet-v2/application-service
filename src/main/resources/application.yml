@@ -18,3 +18,8 @@ spring:
 
 server:
   port: 8089
+
+feign:
+  httpclient:
+    hc5:
+      enabled: true

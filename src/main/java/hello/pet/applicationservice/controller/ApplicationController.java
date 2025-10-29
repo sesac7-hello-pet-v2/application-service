@@ -2,9 +2,9 @@ package hello.pet.applicationservice.controller;
 
 import hello.pet.applicationservice.dto.request.ApplicationCreateRequest;
 import hello.pet.applicationservice.dto.request.ApplicationPageRequest;
+import hello.pet.applicationservice.dto.response.AnnouncementApplicationsPageResponse;
 import hello.pet.applicationservice.dto.response.ApplicationApprovalResponse;
 import hello.pet.applicationservice.dto.response.ApplicationResponse;
-import hello.pet.applicationservice.dto.response.ShelterApplicationsPageResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationPageResponse;
 import hello.pet.applicationservice.dto.response.detail.ApplicationDetailResponse;
 import hello.pet.applicationservice.service.ApplicationService;
@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -63,13 +64,13 @@ public class ApplicationController {
     }
 
     @GetMapping("/announcement/{announcementId}")
-    public ResponseEntity<ShelterApplicationsPageResponse> getShelterApplications(
+    public ResponseEntity<AnnouncementApplicationsPageResponse> getAnnouncementApplications(
             @PathVariable Long announcementId,
             @RequestHeader("X-User-Id") Long shelterId,
             @ModelAttribute @Valid ApplicationPageRequest request) {
 
-        ShelterApplicationsPageResponse response =
-                applicationService.getShelterApplications(announcementId, request, shelterId);
+        AnnouncementApplicationsPageResponse response =
+                applicationService.getAnnouncementApplications(announcementId, request, shelterId);
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
@@ -81,16 +82,39 @@ public class ApplicationController {
             @RequestHeader("X-User-Role") String userRole) {
 
         ApplicationApprovalResponse response =
-                applicationService.processApplicationApproval(announcementId, applicationId, userId, userRole);
+                applicationService.approveApplication(announcementId, applicationId, userId, userRole);
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
 
+    /**
+     * 특정 사용자가 특정 공고에 이미 지원했는지 여부를 조회합니다.
+     * 프론트엔드에서 공고 상세 페이지 렌더링 시 지원 상태를 확인하고,
+     * "지원하기" 버튼 활성화/비활성화 처리를 위해 사용됩니다.
+     *
+     * @param announcementId 공고 ID
+     * @param userId 사용자 ID
+     * @return 지원했으면 true, 아니면 false
+     */
     @GetMapping("/status")
     public ResponseEntity<Boolean> hasUserAppliedToAnnouncement(
             @RequestParam("announcementId") Long announcementId,
             @RequestParam("userId") Long userId) {
-        
+
         boolean hasApplied = applicationService.hasUserAppliedToAnnouncement(announcementId, userId);
         return ResponseEntity.status(HttpStatus.OK).body(hasApplied);
+    }
+
+    /**
+     * 공고 마감 시 해당 공고의 모든 신청 상태를 UNDER_REVIEW로 변경
+     * announcement-service의 스케줄러에서 호출됨
+     *
+     * @param announcementId 마감된 공고 ID
+     */
+    @PutMapping("/announcement/{announcementId}/close")
+    public ResponseEntity<Void> updateApplicationsToUnderReviewForClosedAnnouncement(
+            @PathVariable Long announcementId) {
+
+        applicationService.updateApplicationsToUnderReviewForClosedAnnouncement(announcementId);
+        return ResponseEntity.ok().build();
     }
 }

@@ -25,14 +25,23 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
                 SET a.status = 'REJECTED'
                 WHERE a.announcementId = :announcementId
                 AND a.id != :applicationId
-                AND a.status = 'PENDING'
+                AND a.status IN ('SUBMITTED', 'UNDER_REVIEW')
             """)
     int bulkRejectApplications(@Param("announcementId") Long announcementId,
                                @Param("applicationId") Long applicationId);
 
-    Optional<Application> findByIdAndAnnouncementIdAndStatus(Long applicationId,
-                                                             Long announcementId,
-                                                             ApplicationStatus status);
-
     Optional<Application> findByUserIdAndAnnouncementId(Long userId, Long announcementId);
+
+    // 특정 공고의 신청서 상태 일괄 변경
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            UPDATE Application a
+            SET a.status = :newStatus
+            WHERE a.announcementId = :announcementId
+            AND a.status = :currentStatus
+            """)
+    int bulkUpdateStatus(@Param("announcementId") Long announcementId,
+                         @Param("currentStatus") ApplicationStatus currentStatus,
+                         @Param("newStatus") ApplicationStatus newStatus);
 }
