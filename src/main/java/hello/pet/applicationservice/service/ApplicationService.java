@@ -17,8 +17,10 @@ import hello.pet.applicationservice.exception.AnnouncementApprovalPermissionExce
 import hello.pet.applicationservice.exception.ApplicationAlreadyApprovedException;
 import hello.pet.applicationservice.exception.DuplicateApplicationException;
 import hello.pet.applicationservice.exception.ForbiddenOperationException;
+import hello.pet.applicationservice.dto.response.UserResponse;
 import hello.pet.applicationservice.facade.AnnouncementFacade;
 import hello.pet.applicationservice.facade.PetServiceFacade;
+import hello.pet.applicationservice.facade.UserServiceFacade;
 import hello.pet.applicationservice.repository.ApplicationRepository;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
@@ -39,6 +41,7 @@ public class ApplicationService {
     private final ApplicationRepository applicationRepository;
     private final AnnouncementFacade announcementFacade;
     private final PetServiceFacade petServiceFacade;
+    private final UserServiceFacade userServiceFacade;
 
     public void deleteApplication(Long id, Long userId) {
         Application application = applicationRepository.findById(id)
@@ -64,7 +67,11 @@ public class ApplicationService {
                                                                "해당 번호의 입양 신청서를 찾을 수 없습니다. id=" + id)
                                                        );
 
-        return ApplicationDetailResponse.from(application);
+        UserResponse applicantUser = userServiceFacade.getUserDetail(application.getUserId());
+        AnnouncementResponse announcement = announcementFacade.getAnnouncement(application.getAnnouncementId());
+        UserResponse shelterUser = userServiceFacade.getUserDetail(announcement.getShelterId());
+
+        return ApplicationDetailResponse.from(application, applicantUser, shelterUser);
     }
 
     @Transactional(readOnly = true)
@@ -82,7 +89,12 @@ public class ApplicationService {
         Page<Application> page = applicationRepository.findByAnnouncementId(announcementId, pageable);
 
         List<AnnouncementApplicationResponse> content = page.stream()
-                                                            .map(AnnouncementApplicationResponse::from)
+                                                            .map(application -> {
+                                                                UserResponse user = userServiceFacade.getUserDetail(
+                                                                        application.getUserId());
+                                                                return AnnouncementApplicationResponse.from(application,
+                                                                        user);
+                                                            })
                                                             .toList();
 
         return AnnouncementApplicationsPageResponse.of(pageable, content, page.getTotalElements(), announcement);
