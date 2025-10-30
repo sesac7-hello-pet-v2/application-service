@@ -22,7 +22,7 @@ public class AnnouncementResponse {
     private LocalDateTime createdAt;
     private LocalDate endDate;
     private String imageUrl;
-    private String announcementStatus;
+    private AnnouncementStatus announcementStatus;
     private String animalType;
     private boolean alreadyApplied;
 }
