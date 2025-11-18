@@ -13,15 +13,14 @@ import hello.pet.applicationservice.dto.response.detail.ApplicationDetailRespons
 import hello.pet.applicationservice.entity.Application;
 import hello.pet.applicationservice.entity.ApplicationStatus;
 import hello.pet.applicationservice.exception.AnnouncementAlreadyCompletedException;
-import hello.pet.applicationservice.exception.AnnouncementApprovalPermissionException;
 import hello.pet.applicationservice.exception.ApplicationAlreadyApprovedException;
 import hello.pet.applicationservice.exception.DuplicateApplicationException;
 import hello.pet.applicationservice.exception.ForbiddenOperationException;
 import hello.pet.applicationservice.dto.response.UserResponse;
 import hello.pet.applicationservice.facade.AnnouncementFacade;
-import hello.pet.applicationservice.facade.PetServiceFacade;
 import hello.pet.applicationservice.facade.UserServiceFacade;
 import hello.pet.applicationservice.repository.ApplicationRepository;
+import hello.pet.applicationservice.saga.adoption.AdoptionSaga;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
 import java.util.Optional;
@@ -40,8 +39,8 @@ public class ApplicationService {
 
     private final ApplicationRepository applicationRepository;
     private final AnnouncementFacade announcementFacade;
-    private final PetServiceFacade petServiceFacade;
     private final UserServiceFacade userServiceFacade;
+    private final AdoptionSaga adoptionSaga;
 
     public void deleteApplication(Long id, Long userId) {
         Application application = applicationRepository.findById(id)
@@ -142,47 +141,23 @@ public class ApplicationService {
         return ApplicationResponse.from(application.getId());
     }
 
+    /**
+     * Saga 패턴으로 입양 신청 승인 과정 처리
+     */
     public ApplicationApprovalResponse approveApplication(Long announcementId,
                                                           Long applicationId,
                                                           Long userId,
                                                           String userRole) {
-        // 보호소의 공고 승인 권한 검증
-        validateShelterApprovalPermission(announcementId, userId, userRole);
+        log.info("입양 신청 승인 시작 (Saga 패턴) - announcementId: {}, applicationId: {}",
+                announcementId, applicationId);
 
-        // 신청서 조회 및 승인
-        Application application = applicationRepository.findById(applicationId)
-                                                       .orElseThrow(() -> new EntityNotFoundException(
-                                                               "해당 번호의 입양 신청서를 찾을 수 없습니다. id=" + applicationId)
-                                                       );
-        application.changeStatus(ApplicationStatus.APPROVED);
-
-        // 같은 공고의 나머지 신청서들 일괄 거절
-        applicationRepository.bulkRejectApplications(announcementId, applicationId);
-
-        announcementFacade.completeAnnouncement(announcementId, userId);
-        petServiceFacade.markAsAdopted(application.getPetId(), userId, userRole);
-
-        return ApplicationApprovalResponse.of(announcementId, applicationId);
-    }
-
-    private void validateShelterApprovalPermission(Long announcementId, Long userId, String userRole) {
-        AnnouncementResponse announcement = announcementFacade.getAnnouncement(announcementId);
-
-        boolean isShelter = "SHELTER".equals(userRole);
-        boolean isShelterOwner = announcement.getShelterId().equals(userId);
-
-        if (!(isShelter && isShelterOwner)) {
-            throw new AnnouncementApprovalPermissionException();
-        }
+        // Saga 패턴으로 처리 위임
+        return adoptionSaga.execute(announcementId, applicationId, userId, userRole);
     }
 
     /**
-     * 특정 사용자가 특정 공고에 이미 지원했는지 여부를 확인합니다.
-     * 프론트엔드에서 지원 상태 표시 및 중복 지원 방지 UI 처리를 위해 사용됩니다.
-     *
-     * @param announcementId 공고 ID
-     * @param userId         사용자 ID
-     * @return 지원 이력이 있으면 true, 없으면 false
+     * 특정 사용자가 특정 공고에 이미 지원했는지 여부를 확인
+     * 프론트엔드에서 지원 상태 표시 및 중복 지원 방지 UI 처리를 위해 사용됨
      */
     @Transactional(readOnly = true)
     public boolean hasUserAppliedToAnnouncement(Long announcementId, Long userId) {
@@ -192,8 +167,6 @@ public class ApplicationService {
     /**
      * 공고 마감 시 해당 공고의 모든 신청 상태를 UNDER_REVIEW로 변경
      * announcement-service의 스케줄러에서 호출됨
-     *
-     * @param announcementId 마감된 공고 ID
      */
     public void updateApplicationsToUnderReviewForClosedAnnouncement(Long announcementId) {
         log.info("공고 ID {}의 모든 신청을 UNDER_REVIEW 상태로 변경 시작", announcementId);

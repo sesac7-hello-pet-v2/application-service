@@ -28,4 +28,12 @@ public class AnnouncementFacade {
             throw new EntityNotFoundException("해당 번호의 공고를 찾을 수 없습니다. id=" + announcementId);
         }
     }
+
+    public void reopenAnnouncement(Long announcementId, Long userId) {
+        try {
+            announcementServiceClient.reopenAnnouncement(announcementId, userId);
+        } catch (FeignException.NotFound e) {
+            throw new EntityNotFoundException("해당 번호의 공고를 찾을 수 없습니다. id=" + announcementId);
+        }
+    }
 }

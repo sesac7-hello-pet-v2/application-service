@@ -58,12 +58,6 @@ public class GlobalExceptionHandler {
         return generateExceptionResponse(e, HttpStatus.CONFLICT);
     }
 
-    @ExceptionHandler(AnnouncementApprovalPermissionException.class)
-    public ResponseEntity<ExceptionResponse> handleAnnouncementApprovalPermission(
-            AnnouncementApprovalPermissionException e) {
-        return generateExceptionResponse(e, HttpStatus.FORBIDDEN);
-    }
-
     @ExceptionHandler(ForbiddenOperationException.class)
     public ResponseEntity<ExceptionResponse> handleForbidden(ForbiddenOperationException e) {
         return generateExceptionResponse(e, HttpStatus.FORBIDDEN);

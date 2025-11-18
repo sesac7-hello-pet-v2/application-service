@@ -19,4 +19,12 @@ public class PetServiceFacade {
             throw new EntityNotFoundException("해당 번호의 펫을 찾을 수 없습니다. id=" + petId);
         }
     }
+
+    public void markAsAnnounced(Long petId, Long userId, String userRole) {
+        try {
+            petServiceClient.markAsAnnounced(petId, userId, userRole);
+        } catch (FeignException.NotFound e) {
+            throw new EntityNotFoundException("해당 번호의 펫을 찾을 수 없습니다. id=" + petId);
+        }
+    }
 }
