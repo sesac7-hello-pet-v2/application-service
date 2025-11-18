@@ -2,6 +2,7 @@ package hello.pet.applicationservice.repository;
 
 import hello.pet.applicationservice.entity.Application;
 import hello.pet.applicationservice.entity.ApplicationStatus;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -42,6 +43,37 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
             AND a.status = :currentStatus
             """)
     int bulkUpdateStatus(@Param("announcementId") Long announcementId,
+                         @Param("currentStatus") ApplicationStatus currentStatus,
+                         @Param("newStatus") ApplicationStatus newStatus);
+
+    /**
+     * Saga에서 사용하는 메서드
+     * 특정 공고에서 주어진 상태의 신청서 ID 목록을 조회하되, 지정한 ID는 제외
+     */
+    @Query("""
+            SELECT a.id FROM Application a
+            WHERE a.announcementId = :announcementId
+            AND a.status = :status
+            AND a.id != :excludeId
+            """)
+    List<Long> findOtherApplicationIds(
+            @Param("announcementId") Long announcementId,
+            @Param("status") ApplicationStatus status,
+            @Param("excludeId") Long excludeId);
+
+    /**
+     * Saga에서 사용하는 메서드
+     * ID 목록에 해당하는 신청서들의 상태를 일괄 변경
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            UPDATE Application a
+            SET a.status = :newStatus
+            WHERE a.id IN :ids
+            AND a.status = :currentStatus
+            """)
+    int bulkUpdateStatus(@Param("ids") List<Long> ids,
                          @Param("currentStatus") ApplicationStatus currentStatus,
                          @Param("newStatus") ApplicationStatus newStatus);
 }

@@ -19,4 +19,7 @@ public interface AnnouncementServiceClient {
 
     @PatchMapping("/{id}/complete")
     void completeAnnouncement(@PathVariable("id") Long id, @RequestHeader("X-User-Id") Long userId);
+
+    @PatchMapping("/{id}/reopen")
+    void reopenAnnouncement(@PathVariable("id") Long id, @RequestHeader("X-User-Id") Long userId);
 }
