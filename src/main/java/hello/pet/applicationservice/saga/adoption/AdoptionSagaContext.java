@@ -63,6 +63,7 @@ public class AdoptionSagaContext {
      * 어디서 사용: Step 2 보상에서 이 ID들의 상태를 SUBMITTED로 되돌림
      */
     @Setter
+    @Builder.Default
     private List<Long> rejectedApplicationIds = new ArrayList<>();
 
     // ============ Step 3: 공고 완료 처리 ============
@@ -72,6 +73,7 @@ public class AdoptionSagaContext {
      * 어디서 사용: Step 3 보상에서 true면 /announcements/{id}/reopen 호출
      */
     @Setter
+    @Builder.Default
     private boolean announcementCompleted = false;
 
     // ============ Step 4: 펫 입양 완료 ============
@@ -81,6 +83,7 @@ public class AdoptionSagaContext {
      * 어디서 사용: Step 4 보상에서 true면 /pets/{petId}/mark-announced 호출
      */
     @Setter
+    @Builder.Default
     private boolean petMarkedAsAdopted = false;
 
     // ============ 디버깅 ============
