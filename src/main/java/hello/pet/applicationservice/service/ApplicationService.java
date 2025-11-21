@@ -9,6 +9,7 @@ import hello.pet.applicationservice.dto.response.ApplicationApprovalResponse;
 import hello.pet.applicationservice.dto.response.ApplicationResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationPageResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationResponse;
+import hello.pet.applicationservice.dto.response.UserResponse;
 import hello.pet.applicationservice.dto.response.detail.ApplicationDetailResponse;
 import hello.pet.applicationservice.entity.Application;
 import hello.pet.applicationservice.entity.ApplicationScore;
@@ -17,7 +18,6 @@ import hello.pet.applicationservice.exception.AnnouncementAlreadyCompletedExcept
 import hello.pet.applicationservice.exception.ApplicationAlreadyApprovedException;
 import hello.pet.applicationservice.exception.DuplicateApplicationException;
 import hello.pet.applicationservice.exception.ForbiddenOperationException;
-import hello.pet.applicationservice.dto.response.UserResponse;
 import hello.pet.applicationservice.facade.AnnouncementFacade;
 import hello.pet.applicationservice.facade.UserServiceFacade;
 import hello.pet.applicationservice.repository.ApplicationRepository;
@@ -87,19 +87,37 @@ public class ApplicationService {
             throw new ForbiddenOperationException("해당 공고에 대한 접근 권한이 없습니다.");
         }
 
-        // 신청서와 점수 조회
+        // 신청서 조회
         Pageable pageable = request.toPageable();
         Page<Application> applicationPage = applicationRepository.findByAnnouncementId(announcementId, pageable);
-        List<ApplicationScore> scores = scoreRepository.findByAnnouncementIdOrderByTotalScoreDesc(announcementId);
 
-        // 응답 생성 (점수 필터링 포함)
-        List<AnnouncementApplicationResponse> content =
-                applicationPage.stream()
-                               .map(app -> buildApplicationResponse(app, findScoreForApplication(scores, app.getId())))
-                               .filter(response -> isAboveMinScore(response, request.getMinScore()))
-                               .toList();
+        // 점수 정보 일괄 조회
+        List<ApplicationScore> allScores = scoreRepository.findByAnnouncementIdOrderByTotalScoreDesc(announcementId);
 
-        return AnnouncementApplicationsPageResponse.of(pageable, content, applicationPage.getTotalElements(),
+        // 응답 생성
+        List<AnnouncementApplicationResponse> responses = applicationPage
+                .stream()
+                .map(app -> {
+                    ApplicationScore score = findScoreForApplication(allScores, app.getId());
+                    return buildApplicationResponse(app, score);
+                })
+                .toList();
+
+        // 필터링 적용
+        if (request.getMinScore() != null) {
+            responses = responses.stream()
+                                 .filter(response -> isAboveMinScore(response, request.getMinScore()))
+                                 .toList();
+        }
+
+        // 점수 정렬 적용
+        if ("score".equals(request.getOrderBy())) {
+            responses = responses.stream()
+                                 .sorted((a, b) -> compareByScore(a, b))
+                                 .toList();
+        }
+
+        return AnnouncementApplicationsPageResponse.of(pageable, responses, applicationPage.getTotalElements(),
                 announcement);
     }
 
@@ -223,5 +241,27 @@ public class ApplicationService {
             return true;
         }
         return response.getTotalScore() != null && response.getTotalScore() >= minScore;
+    }
+
+    /**
+     * 점수 기준 내림차순 정렬 비교자
+     */
+    private int compareByScore(AnnouncementApplicationResponse a, AnnouncementApplicationResponse b) {
+        Integer scoreA = a.getTotalScore();
+        Integer scoreB = b.getTotalScore();
+
+        // null 처리 - null은 뒤로
+        if (scoreA == null && scoreB == null) {
+            return 0;
+        }
+        if (scoreA == null) {
+            return 1;
+        }
+        if (scoreB == null) {
+            return -1;
+        }
+
+        // 점수 내림차순
+        return scoreB.compareTo(scoreA);
     }
 }

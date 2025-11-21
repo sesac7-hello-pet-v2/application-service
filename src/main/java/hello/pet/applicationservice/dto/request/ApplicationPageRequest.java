@@ -28,9 +28,6 @@ public class ApplicationPageRequest {
     private String orderBy = "createdAt"; // createdAt(기본값) 또는 score
 
     public Pageable toPageable() {
-        if ("score".equals(orderBy)) {
-            return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "score.totalScore", "createdAt"));
-        }
         return PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
     }
 }
