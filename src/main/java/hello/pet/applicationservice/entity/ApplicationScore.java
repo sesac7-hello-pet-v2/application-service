@@ -45,6 +45,11 @@ public class ApplicationScore {
     @Column(length = 10)
     private String grade;                    // 등급 (A, B, C, D, F)
 
+    // ========== 점수 상태 ==========
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private ScoreStatus status = ScoreStatus.NORMAL;  // 점수 상태 (정상/주의/탈락)
+
     // ========== 즉시 탈락 여부 ==========
     @Column(nullable = false)
     private boolean hasDisqualifyingFactor = false;  // 즉시 탈락 요인 존재
@@ -78,14 +83,10 @@ public class ApplicationScore {
 
         calculateTotalScore();
         determineGrade();
+        determineStatus();
     }
 
     private void calculateTotalScore() {
-        if (hasDisqualifyingFactor) {
-            this.totalScore = 0;
-            return;
-        }
-
         this.totalScore = housingScore + financialScore + experienceScore + careScore + familyScore;
     }
 
@@ -95,10 +96,10 @@ public class ApplicationScore {
      * B: 70-84점 (적합)
      * C: 55-69점 (보통)
      * D: 40-54점 (재검토 필요)
-     * F: 40점 미만 또는 즉시 탈락
+     * F: 40점 미만
      */
     private void determineGrade() {
-        if (hasDisqualifyingFactor || totalScore < 40) {
+        if (totalScore < 40) {
             this.grade = "F";
         } else if (totalScore >= 85) {
             this.grade = "A";
@@ -109,6 +110,10 @@ public class ApplicationScore {
         } else {
             this.grade = "D";
         }
+    }
+
+    private void determineStatus() {
+        this.status = ScoreStatus.determine(this.grade, this.hasDisqualifyingFactor);
     }
 
 }

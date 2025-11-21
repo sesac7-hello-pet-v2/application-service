@@ -41,6 +41,7 @@ public class ApplicationService {
     private final AnnouncementFacade announcementFacade;
     private final UserServiceFacade userServiceFacade;
     private final AdoptionSaga adoptionSaga;
+    private final ScoringService scoringService;
 
     public void deleteApplication(Long id, Long userId) {
         Application application = applicationRepository.findById(id)
@@ -136,9 +137,18 @@ public class ApplicationService {
         }
 
         Application application = request.toEntity(userId, announcement.getId(), announcement.getPetId());
-        applicationRepository.save(application);
+        Application savedApplication = applicationRepository.save(application);
 
-        return ApplicationResponse.from(application.getId());
+        // 점수 자동 계산 (점수 계산 실패해도 신청서는 정상적으로 저장됨)
+        try {
+            scoringService.calculateAndSaveScore(savedApplication);
+            log.info("Score calculated successfully for application ID: {}", savedApplication.getId());
+        } catch (Exception e) {
+            log.error("Failed to calculate score for application ID: {}, but application saved successfully",
+                    savedApplication.getId(), e);
+        }
+
+        return ApplicationResponse.from(savedApplication.getId());
     }
 
     /**
