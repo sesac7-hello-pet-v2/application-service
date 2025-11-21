@@ -9,17 +9,19 @@ import hello.pet.applicationservice.dto.response.ApplicationApprovalResponse;
 import hello.pet.applicationservice.dto.response.ApplicationResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationPageResponse;
 import hello.pet.applicationservice.dto.response.UserApplicationResponse;
+import hello.pet.applicationservice.dto.response.UserResponse;
 import hello.pet.applicationservice.dto.response.detail.ApplicationDetailResponse;
 import hello.pet.applicationservice.entity.Application;
+import hello.pet.applicationservice.entity.ApplicationScore;
 import hello.pet.applicationservice.entity.ApplicationStatus;
 import hello.pet.applicationservice.exception.AnnouncementAlreadyCompletedException;
 import hello.pet.applicationservice.exception.ApplicationAlreadyApprovedException;
 import hello.pet.applicationservice.exception.DuplicateApplicationException;
 import hello.pet.applicationservice.exception.ForbiddenOperationException;
-import hello.pet.applicationservice.dto.response.UserResponse;
 import hello.pet.applicationservice.facade.AnnouncementFacade;
 import hello.pet.applicationservice.facade.UserServiceFacade;
 import hello.pet.applicationservice.repository.ApplicationRepository;
+import hello.pet.applicationservice.repository.ApplicationScoreRepository;
 import hello.pet.applicationservice.saga.adoption.AdoptionSaga;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
@@ -38,9 +40,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class ApplicationService {
 
     private final ApplicationRepository applicationRepository;
+    private final ApplicationScoreRepository scoreRepository;
     private final AnnouncementFacade announcementFacade;
     private final UserServiceFacade userServiceFacade;
     private final AdoptionSaga adoptionSaga;
+    private final ScoringService scoringService;
 
     public void deleteApplication(Long id, Long userId) {
         Application application = applicationRepository.findById(id)
@@ -77,26 +81,44 @@ public class ApplicationService {
     public AnnouncementApplicationsPageResponse getAnnouncementApplications(Long announcementId,
                                                                             ApplicationPageRequest request,
                                                                             Long shelterId) {
-
+        // 권한 검증
         AnnouncementResponse announcement = announcementFacade.getAnnouncement(announcementId);
-
         if (!announcement.getShelterId().equals(shelterId)) {
             throw new ForbiddenOperationException("해당 공고에 대한 접근 권한이 없습니다.");
         }
 
+        // 신청서 조회
         Pageable pageable = request.toPageable();
-        Page<Application> page = applicationRepository.findByAnnouncementId(announcementId, pageable);
+        Page<Application> applicationPage = applicationRepository.findByAnnouncementId(announcementId, pageable);
 
-        List<AnnouncementApplicationResponse> content = page.stream()
-                                                            .map(application -> {
-                                                                UserResponse user = userServiceFacade.getUserDetail(
-                                                                        application.getUserId());
-                                                                return AnnouncementApplicationResponse.from(application,
-                                                                        user);
-                                                            })
-                                                            .toList();
+        // 점수 정보 일괄 조회
+        List<ApplicationScore> allScores = scoreRepository.findByAnnouncementIdOrderByTotalScoreDesc(announcementId);
 
-        return AnnouncementApplicationsPageResponse.of(pageable, content, page.getTotalElements(), announcement);
+        // 응답 생성
+        List<AnnouncementApplicationResponse> responses = applicationPage
+                .stream()
+                .map(app -> {
+                    ApplicationScore score = findScoreForApplication(allScores, app.getId());
+                    return buildApplicationResponse(app, score);
+                })
+                .toList();
+
+        // 필터링 적용
+        if (request.getMinScore() != null) {
+            responses = responses.stream()
+                                 .filter(response -> isAboveMinScore(response, request.getMinScore()))
+                                 .toList();
+        }
+
+        // 점수 정렬 적용
+        if ("score".equals(request.getOrderBy())) {
+            responses = responses.stream()
+                                 .sorted((a, b) -> compareByScore(a, b))
+                                 .toList();
+        }
+
+        return AnnouncementApplicationsPageResponse.of(pageable, responses, applicationPage.getTotalElements(),
+                announcement);
     }
 
     @Transactional(readOnly = true)
@@ -136,9 +158,17 @@ public class ApplicationService {
         }
 
         Application application = request.toEntity(userId, announcement.getId(), announcement.getPetId());
-        applicationRepository.save(application);
+        Application savedApplication = applicationRepository.save(application);
 
-        return ApplicationResponse.from(application.getId());
+        // 점수 자동 계산 (점수 계산 실패해도 신청서는 정상적으로 저장됨)
+        try {
+            scoringService.calculateAndSaveScore(savedApplication);
+            log.info("Score calculated successfully for application ID: {}", savedApplication.getId());
+        } catch (Exception e) {
+            log.error("Failed to calculate score for application ID: {}", savedApplication.getId(), e);
+        }
+
+        return ApplicationResponse.from(savedApplication.getId());
     }
 
     /**
@@ -183,5 +213,55 @@ public class ApplicationService {
         } else {
             log.info("공고 ID {}의 신청 {}건을 UNDER_REVIEW 상태로 변경 완료", announcementId, updatedCount);
         }
+    }
+
+    /**
+     * 신청서 ID로 해당하는 점수 정보를 찾아 반환
+     */
+    private ApplicationScore findScoreForApplication(List<ApplicationScore> scores, Long applicationId) {
+        return scores.stream()
+                     .filter(score -> score.getApplicationId().equals(applicationId))
+                     .findFirst()
+                     .orElse(null);
+    }
+
+    /**
+     * 신청서, 사용자, 점수 정보를 조합하여 응답 DTO 생성
+     */
+    private AnnouncementApplicationResponse buildApplicationResponse(Application application, ApplicationScore score) {
+        UserResponse user = userServiceFacade.getUserDetail(application.getUserId());
+        return AnnouncementApplicationResponse.from(application, user, score);
+    }
+
+    /**
+     * 최소 점수 필터링 조건 확인
+     */
+    private boolean isAboveMinScore(AnnouncementApplicationResponse response, Integer minScore) {
+        if (minScore == null) {
+            return true;
+        }
+        return response.getTotalScore() != null && response.getTotalScore() >= minScore;
+    }
+
+    /**
+     * 점수 기준 내림차순 정렬 비교자
+     */
+    private int compareByScore(AnnouncementApplicationResponse a, AnnouncementApplicationResponse b) {
+        Integer scoreA = a.getTotalScore();
+        Integer scoreB = b.getTotalScore();
+
+        // null 처리 - null은 뒤로
+        if (scoreA == null && scoreB == null) {
+            return 0;
+        }
+        if (scoreA == null) {
+            return 1;
+        }
+        if (scoreB == null) {
+            return -1;
+        }
+
+        // 점수 내림차순
+        return scoreB.compareTo(scoreA);
     }
 }
