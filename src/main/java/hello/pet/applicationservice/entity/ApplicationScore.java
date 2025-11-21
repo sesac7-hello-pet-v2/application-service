@@ -71,7 +71,6 @@ public class ApplicationScore {
                             boolean hasDisqualifyingFactor,
                             String disqualifyingReason) {
         this.application = application;
-        this.applicationId = application.getId();
         this.housingScore = housingScore;
         this.financialScore = financialScore;
         this.experienceScore = experienceScore;

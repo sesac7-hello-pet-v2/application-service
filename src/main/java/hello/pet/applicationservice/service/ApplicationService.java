@@ -147,8 +147,7 @@ public class ApplicationService {
             scoringService.calculateAndSaveScore(savedApplication);
             log.info("Score calculated successfully for application ID: {}", savedApplication.getId());
         } catch (Exception e) {
-            log.error("Failed to calculate score for application ID: {}, but application saved successfully",
-                    savedApplication.getId(), e);
+            log.error("Failed to calculate score for application ID: {}", savedApplication.getId(), e);
         }
 
         return ApplicationResponse.from(savedApplication.getId());
