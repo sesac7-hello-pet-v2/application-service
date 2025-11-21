@@ -1,5 +1,15 @@
 package hello.pet.applicationservice.saga;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import hello.pet.applicationservice.entity.Application;
 import hello.pet.applicationservice.entity.ApplicationStatus;
 import hello.pet.applicationservice.repository.ApplicationRepository;
@@ -10,6 +20,7 @@ import hello.pet.applicationservice.saga.adoption.steps.MarkPetAdoptedStep;
 import hello.pet.applicationservice.saga.adoption.steps.RejectOtherApplicationsStep;
 import hello.pet.applicationservice.saga.core.SagaOrchestrator;
 import hello.pet.applicationservice.saga.core.SagaStep;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,22 +28,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
-
 /**
  * Saga 패턴 테스트
  *
- * <p>학습 포인트:</p>
- * <ul>
- *   <li>Saga 실행 흐름 검증</li>
- *   <li>보상 트랜잭션 동작 확인</li>
- *   <li>멱등성 테스트</li>
- * </ul>
+ * - Saga 실행 흐름 검증
+ * - 보상 트랜잭션 동작 확인
+ * - 멱등성 테스트
  */
 @ExtendWith(MockitoExtension.class)
 class AdoptionSagaTest {
@@ -61,20 +62,18 @@ class AdoptionSagaTest {
     void setUp() {
         // 테스트용 Context 생성
         context = AdoptionSagaContext.builder()
-                .announcementId(1L)
-                .applicationId(100L)
-                .userId(10L)
-                .userRole("SHELTER")
-                .build();
+                                     .announcementId(1L)
+                                     .applicationId(100L)
+                                     .userId(10L)
+                                     .userRole("SHELTER")
+                                     .build();
     }
 
     @Test
     @DisplayName("Saga 정상 실행 - 모든 Step 성공")
     void testSagaSuccessfulExecution() throws Exception {
         // given
-        Application mockApplication = mock(Application.class);
-        when(mockApplication.getStatus()).thenReturn(ApplicationStatus.SUBMITTED);
-        context.setApplication(mockApplication);
+        // Context는 이미 setUp에서 초기화됨
 
         // when
         // Step들을 순차적으로 실행
@@ -94,8 +93,8 @@ class AdoptionSagaTest {
     @DisplayName("Step 3 실패 시 보상 - Step 2, 1 보상 실행")
     void testCompensationOnStep3Failure() throws Exception {
         // given
-        doThrow(new RuntimeException("공고 완료 실패"))
-                .when(completeAnnouncementStep).execute(any());
+        // completeAnnouncementStep.execute()가 호출되면 무조건 예외를 발생시켜라
+        doThrow(new RuntimeException("공고 완료 실패")).when(completeAnnouncementStep).execute(any());
 
         // when
         try {
@@ -189,10 +188,10 @@ class AdoptionSagaTest {
     void testSagaOrchestratorInvocation() throws Exception {
         // given
         List<SagaStep<AdoptionSagaContext>> mockSteps = List.of(
-            approveApplicationStep,
-            rejectOtherApplicationsStep,
-            completeAnnouncementStep,
-            markPetAdoptedStep
+                approveApplicationStep,
+                rejectOtherApplicationsStep,
+                completeAnnouncementStep,
+                markPetAdoptedStep
         );
 
         // when
