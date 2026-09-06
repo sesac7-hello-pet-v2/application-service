@@ -1,6 +1,7 @@
 package hello.pet.applicationservice.saga.adoption.steps;
 
 import hello.pet.applicationservice.facade.AnnouncementFacade;
+import hello.pet.applicationservice.dto.response.AnnouncementCompletionResponse;
 import hello.pet.applicationservice.saga.adoption.AdoptionSagaContext;
 import hello.pet.applicationservice.saga.core.SagaStep;
 import lombok.RequiredArgsConstructor;
@@ -13,7 +14,7 @@ import org.springframework.stereotype.Component;
  * 책임
  * - announcement-service에 공고 완료 요청
  * - 외부 서비스 호출이므로 트랜잭션 없음
- * - 보상 시 공고를 재오픈
+ * - 이번 호출에서 변경한 공고만 마감 상태(CLOSED)로 보상
  *
  * 참고
  * - 멱등성은 announcement-service에서 처리 (외부 서비스의 상태는 여기서 확인 불가)
@@ -32,13 +33,15 @@ public class CompleteAnnouncementStep implements SagaStep<AdoptionSagaContext> {
 
         try {
             // 외부 서비스 호출: 공고 완료 처리
-            announcementFacade.completeAnnouncement(
+            AnnouncementCompletionResponse result = announcementFacade.completeAnnouncement(
                     context.getAnnouncementId(),
                     context.getUserId()
             );
 
-            // 성공 시 Context에 표시 (보상 시 참조용)
-            context.setAnnouncementCompleted(true);
+            if (result == null) {
+                throw new IllegalStateException("공고 완료 응답에 올바른 보상 정보가 없습니다.");
+            }
+            context.setAnnouncementCompleted(result.changed());
 
             log.info("공고 완료 처리 성공 - announcementId: {}", context.getAnnouncementId());
 
@@ -54,14 +57,14 @@ public class CompleteAnnouncementStep implements SagaStep<AdoptionSagaContext> {
         try {
             log.warn("공고 완료 취소 시작 - announcementId: {}", context.getAnnouncementId());
 
-            // 실제로 완료 처리가 되었는지 확인
+            // 이미 완료되어 있던 공고는 이번 실행의 보상 대상이 아니다.
             if (!context.isAnnouncementCompleted()) {
                 log.info("공고 완료 처리가 되지 않았으므로 취소할 필요 없음");
                 return;
             }
 
-            // 외부 서비스 호출: 공고 재오픈
-            announcementFacade.reopenAnnouncement(
+            // 외부 서비스 호출: 마감 상태로 복원
+            announcementFacade.cancelAnnouncementCompletion(
                     context.getAnnouncementId(),
                     context.getUserId()
             );

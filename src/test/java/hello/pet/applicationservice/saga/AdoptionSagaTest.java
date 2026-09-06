@@ -1,6 +1,7 @@
 package hello.pet.applicationservice.saga;
 
 import hello.pet.applicationservice.dto.response.AnnouncementResponse;
+import hello.pet.applicationservice.dto.response.AnnouncementCompletionResponse;
 import hello.pet.applicationservice.entity.Application;
 import hello.pet.applicationservice.entity.ApplicationStatus;
 import hello.pet.applicationservice.entity.info.agreement.AgreementInfo;
@@ -64,6 +65,8 @@ class AdoptionSagaTest {
         AnnouncementResponse announcement = mock(AnnouncementResponse.class);
         when(announcement.getShelterId()).thenReturn(10L);
         when(announcementFacade.getAnnouncement(1L)).thenReturn(announcement);
+        when(announcementFacade.completeAnnouncement(1L, 10L))
+                .thenReturn(new AnnouncementCompletionResponse(true));
     }
 
     @Test
@@ -71,7 +74,7 @@ class AdoptionSagaTest {
         doAnswer(call -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             assertApproved(); // 별도 DB 조회로 다음 단계 전에 커밋되었음을 확인
-            return null;
+            return new AnnouncementCompletionResponse(true);
         }).when(announcementFacade).completeAnnouncement(1L, 10L);
 
         approve();
@@ -85,7 +88,7 @@ class AdoptionSagaTest {
         doAnswer(call -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             assertApproved();
-            return null;
+            return new AnnouncementCompletionResponse(true);
         }).when(announcementFacade).completeAnnouncement(1L, 10L);
 
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
@@ -107,7 +110,7 @@ class AdoptionSagaTest {
 
         assertRestored();
         verifyNoInteractions(petServiceFacade);
-        verify(announcementFacade, never()).reopenAnnouncement(anyLong(), anyLong());
+        verify(announcementFacade, never()).cancelAnnouncementCompletion(anyLong(), anyLong());
     }
 
     @Test
@@ -117,11 +120,11 @@ class AdoptionSagaTest {
         doAnswer(call -> {
             assertApproved(); // 공고 보상 시점에는 신청서 보상이 아직 실행되지 않았다.
             return null;
-        }).when(announcementFacade).reopenAnnouncement(1L, 10L);
+        }).when(announcementFacade).cancelAnnouncementCompletion(1L, 10L);
 
         assertThatThrownBy(this::approve).isInstanceOf(RuntimeException.class);
 
-        verify(announcementFacade).reopenAnnouncement(1L, 10L);
+        verify(announcementFacade).cancelAnnouncementCompletion(1L, 10L);
         assertRestored();
     }
 
@@ -285,6 +288,8 @@ class AdoptionSagaTest {
     @Test
     void retryAfterCompletedApprovalDoesNotUndoPreviouslyRejectedApplications() {
         approve();
+        when(announcementFacade.completeAnnouncement(1L, 10L))
+                .thenReturn(new AnnouncementCompletionResponse(false));
         LocalDateTime original = repository.findById(selected).orElseThrow().getProcessedAt();
         doThrow(new IllegalStateException("펫 요청 실패"))
                 .when(petServiceFacade).markAsAdopted(5L, 10L, "SHELTER");
@@ -293,6 +298,7 @@ class AdoptionSagaTest {
 
         assertApproved();
         assertThat(repository.findById(selected).orElseThrow().getProcessedAt()).isEqualTo(original);
+        verify(announcementFacade, never()).cancelAnnouncementCompletion(anyLong(), anyLong());
     }
 
     @Test
