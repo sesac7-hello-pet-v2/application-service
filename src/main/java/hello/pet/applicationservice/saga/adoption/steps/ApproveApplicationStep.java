@@ -6,105 +6,87 @@ import hello.pet.applicationservice.repository.ApplicationRepository;
 import hello.pet.applicationservice.saga.adoption.AdoptionSagaContext;
 import hello.pet.applicationservice.saga.core.SagaStep;
 import jakarta.persistence.EntityNotFoundException;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Step 1: 입양 신청서 승인
- *
- * 책임
- * - 신청서 상태를 APPROVED로 변경
- * - 보상을 위해 기존 상태 저장
- * - 멱등성 보장
- *
- * 참고
- * - ApplicationRepository 직접 사용
- */
-@Slf4j
+/** 신청서 승인과 다른 신청서 거절을 하나의 로컬 트랜잭션으로 커밋한다. */
 @Component
 @RequiredArgsConstructor
 public class ApproveApplicationStep implements SagaStep<AdoptionSagaContext> {
-
+    // 큰 IN 절을 피하되 모든 배치를 하나의 로컬 트랜잭션으로 처리한다.
+    private static final int BATCH_SIZE = 500;
     private final ApplicationRepository applicationRepository;
 
     @Override
     @Transactional
-    public void execute(AdoptionSagaContext context) throws Exception {
-        log.info("신청서 승인 시작 - applicationId: {}", context.getApplicationId());
-
-        // 신청서 조회
-        Application application = applicationRepository.findById(context.getApplicationId())
-                                                       .orElseThrow(() -> new EntityNotFoundException(
-                                                               "신청서를 찾을 수 없습니다. ID: " + context.getApplicationId()
-                                                       ));
-
-        // Context에 저장 (다음 Step에서 사용)
-        context.setApplication(application);
-        context.setPetId(application.getPetId());
-
-        // 원본 상태 저장 (보상용)
-        context.setOriginalApplicationStatus(application.getStatus());
-
-        // 멱등성 체크: 이미 승인된 경우 스킵
-        if (application.getStatus() == ApplicationStatus.APPROVED) {
-            log.info("이미 승인된 신청서입니다. 스킵합니다. applicationId: {}",
-                    context.getApplicationId());
-            return;
+    public void execute(AdoptionSagaContext context) {
+        Application selected = applicationRepository.findById(context.getApplicationId())
+                .orElseThrow(() -> new EntityNotFoundException("신청서를 찾을 수 없습니다."));
+        if (!selected.getAnnouncementId().equals(context.getAnnouncementId())) {
+            throw new IllegalArgumentException("해당 공고의 신청서가 아닙니다.");
+        }
+        if (selected.getStatus() != ApplicationStatus.SUBMITTED
+                && selected.getStatus() != ApplicationStatus.UNDER_REVIEW
+                && selected.getStatus() != ApplicationStatus.APPROVED) {
+            throw new IllegalStateException("승인 가능한 신청서 상태가 아닙니다.");
         }
 
-        // 상태 변경
-        application.changeStatus(ApplicationStatus.APPROVED);
-        applicationRepository.save(application);
+        context.setOriginalApplicationStatus(selected.getStatus());
+        context.setOriginalProcessedAt(selected.getProcessedAt());
+        context.setPetId(selected.getPetId());
+        context.setSubmittedApplicationIds(applicationRepository.findOtherApplicationIds(
+                context.getAnnouncementId(), ApplicationStatus.SUBMITTED, selected.getId()));
+        context.setUnderReviewApplicationIds(applicationRepository.findOtherApplicationIds(
+                context.getAnnouncementId(), ApplicationStatus.UNDER_REVIEW, selected.getId()));
 
-        log.info("신청서 승인 완료 - applicationId: {}, 이전 상태: {}",
-                context.getApplicationId(), context.getOriginalApplicationStatus());
+        // 기존 승인 재요청은 허용하되, 이미 승인된 신청서와 처리 시각은 변경하지 않는다.
+        if (selected.getStatus() != ApplicationStatus.APPROVED) {
+            selected.changeStatus(ApplicationStatus.APPROVED);
+        }
+        reject(context.getSubmittedApplicationIds(), ApplicationStatus.SUBMITTED);
+        reject(context.getUnderReviewApplicationIds(), ApplicationStatus.UNDER_REVIEW);
     }
 
     @Override
     @Transactional
     public void compensate(AdoptionSagaContext context) {
-        try {
-            log.warn("신청서 승인 취소 시작 - applicationId: {}", context.getApplicationId());
+        // 재요청 이전에 완료된 승인은 이번 실행의 보상 대상이 아니다.
+        if (context.getOriginalApplicationStatus() != ApplicationStatus.APPROVED) {
+            Application selected = applicationRepository.findById(context.getApplicationId())
+                    .orElseThrow(() -> new EntityNotFoundException("보상할 신청서를 찾을 수 없습니다."));
+            selected.restoreAfterAdoptionApproval(ApplicationStatus.APPROVED,
+                    context.getOriginalApplicationStatus(), context.getOriginalProcessedAt());
+        }
+        restore(context.getSubmittedApplicationIds(), ApplicationStatus.SUBMITTED);
+        restore(context.getUnderReviewApplicationIds(), ApplicationStatus.UNDER_REVIEW);
+    }
 
-            // 보상할 데이터가 없으면 스킵
-            if (context.getOriginalApplicationStatus() == null) {
-                log.warn("원본 상태 정보가 없습니다. 보상을 스킵합니다.");
-                return;
+    private void reject(List<Long> ids, ApplicationStatus originalStatus) {
+        for (int start = 0; start < ids.size(); start += BATCH_SIZE) {
+            List<Long> batch = ids.subList(start, Math.min(start + BATCH_SIZE, ids.size()));
+            int updated = applicationRepository.bulkUpdateStatus(batch, originalStatus, ApplicationStatus.REJECTED);
+            if (updated != batch.size()) {
+                throw new IllegalStateException("거절 대상이 변경되어 신청서 처리를 취소합니다.");
             }
+        }
+    }
 
-            Application application = applicationRepository.findById(context.getApplicationId())
-                                                           .orElse(null);
-
-            if (application == null) {
-                log.error("신청서를 찾을 수 없어 보상할 수 없습니다. ID: {}", context.getApplicationId());
-                return;
+    private void restore(List<Long> ids, ApplicationStatus originalStatus) {
+        for (int start = 0; start < ids.size(); start += BATCH_SIZE) {
+            List<Long> batch = ids.subList(start, Math.min(start + BATCH_SIZE, ids.size()));
+            int updated = applicationRepository.bulkUpdateStatus(batch, ApplicationStatus.REJECTED, originalStatus);
+            // 반복 보상은 허용하지만 삭제되거나 다른 상태로 바뀐 대상은 조용히 건너뛰지 않는다.
+            if (updated != batch.size()
+                    && applicationRepository.countByIdInAndStatus(batch, originalStatus) != batch.size()) {
+                throw new IllegalStateException("신청서 상태가 변경되어 보상할 수 없습니다.");
             }
-
-            // 멱등성 체크: 이미 원래 상태면 스킵
-            if (application.getStatus() == context.getOriginalApplicationStatus()) {
-                log.info("이미 복원된 상태입니다. 스킵합니다. status: {}", application.getStatus());
-                return;
-            }
-
-            // 상태 복원
-            application.changeStatus(context.getOriginalApplicationStatus());
-            applicationRepository.save(application);
-
-            log.warn("신청서 승인 취소 완료 - applicationId: {}, 복원된 상태: {}",
-                    context.getApplicationId(), context.getOriginalApplicationStatus());
-
-        } catch (Exception e) {
-            // 보상 실패는 로그만 남기고 진행
-            log.error("신청서 승인 취소 실패 - applicationId: {}, 오류: {}",
-                    context.getApplicationId(), e.getMessage());
-            throw e; // 상위(SagaOrchestrator)에서 처리
         }
     }
 
     @Override
     public String getName() {
-        return "신청서 승인";
+        return "신청서 승인 및 다른 신청서 거절";
     }
 }

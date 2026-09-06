@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * Step 3: 공고 완료 처리
+ * Step 2: 공고 완료 처리
  *
  * 책임
  * - announcement-service에 공고 완료 요청

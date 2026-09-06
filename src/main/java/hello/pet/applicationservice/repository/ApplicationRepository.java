@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public interface ApplicationRepository extends JpaRepository<Application, Long> {
+    long countByIdInAndStatus(List<Long> ids, ApplicationStatus status);
     Page<Application> findByUserId(Long userId, Pageable pageable);
 
     Page<Application> findByAnnouncementId(Long announcementId, Pageable pageable);
@@ -61,12 +62,9 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
             @Param("status") ApplicationStatus status,
             @Param("excludeId") Long excludeId);
 
-    /**
-     * Saga에서 사용하는 메서드
-     * ID 목록에 해당하는 신청서들의 상태를 일괄 변경
-     */
+    /** Saga 변경 대상을 ID로 제한한다. 벌크 쿼리 전에 승인 엔티티의 변경을 반영한다. */
     @Transactional
-    @Modifying(clearAutomatically = true)
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             UPDATE Application a
             SET a.status = :newStatus

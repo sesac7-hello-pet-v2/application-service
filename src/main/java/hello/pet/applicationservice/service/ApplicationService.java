@@ -32,6 +32,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 @Slf4j
 @Service
@@ -174,6 +175,7 @@ public class ApplicationService {
     /**
      * Saga 패턴으로 입양 신청 승인 과정 처리
      */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ApplicationApprovalResponse approveApplication(Long announcementId,
                                                           Long applicationId,
                                                           Long userId,

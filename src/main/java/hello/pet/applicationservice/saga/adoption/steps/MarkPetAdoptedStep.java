@@ -8,7 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * Step 4: 펫 입양 완료 처리
+ * Step 3: 펫 입양 완료 처리
  *
  * 책임
  * - pet-service에 펫 입양 처리 요청
