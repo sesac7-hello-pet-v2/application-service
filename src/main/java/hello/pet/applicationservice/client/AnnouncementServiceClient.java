@@ -1,6 +1,7 @@
 package hello.pet.applicationservice.client;
 
 import hello.pet.applicationservice.dto.response.AnnouncementResponse;
+import hello.pet.applicationservice.dto.response.AnnouncementCompletionResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -18,7 +19,12 @@ public interface AnnouncementServiceClient {
     AnnouncementResponse getAnnouncementById(@PathVariable("id") Long id);
 
     @PatchMapping("/{id}/complete")
-    void completeAnnouncement(@PathVariable("id") Long id, @RequestHeader("X-User-Id") Long userId);
+    AnnouncementCompletionResponse completeAnnouncement(@PathVariable("id") Long id,
+            @RequestHeader("X-User-Id") Long userId);
+
+    @PatchMapping("/{id}/cancel-completion")
+    void cancelAnnouncementCompletion(@PathVariable("id") Long id,
+            @RequestHeader("X-User-Id") Long userId);
 
     @PatchMapping("/{id}/reopen")
     void reopenAnnouncement(@PathVariable("id") Long id, @RequestHeader("X-User-Id") Long userId);

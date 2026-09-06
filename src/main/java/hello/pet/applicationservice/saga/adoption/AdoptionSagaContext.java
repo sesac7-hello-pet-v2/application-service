@@ -63,7 +63,7 @@ public class AdoptionSagaContext {
     @ToString.Exclude
     private List<Long> underReviewApplicationIds = List.of();
 
-    /** 공고 완료 호출이 정상 반환하면 true. 공고 Step의 보상 여부 판단에 사용한다. */
+    /** 공고 서비스가 이번 호출에서 실제로 완료 상태로 변경했을 때만 true. */
     @Setter
     private boolean announcementCompleted;
 
