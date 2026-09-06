@@ -1,108 +1,76 @@
 package hello.pet.applicationservice.saga.adoption;
 
-import hello.pet.applicationservice.entity.Application;
+import java.util.List;
+import java.time.LocalDateTime;
 import hello.pet.applicationservice.entity.ApplicationStatus;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
-
-import java.util.ArrayList;
-import java.util.List;
+import lombok.ToString;
 
 /**
- * 역할: Step 간 데이터 공유 저장소
+ * 입양 승인 Saga의 Step들이 공유하는 실행 데이터와 보상 정보를 보관한다.
  *
- * 데이터 종류:
- * 1. Saga 시작 시 받은 값 (final) - 변경 불가
- * 2. Step 실행 중 생성된 값 (@Setter) - 변경 가능
+ * AdoptionSaga가 요청마다 생성하고, SagaOrchestrator가 같은 인스턴스를 각 Step에 전달한다.
+ * 신청서 Step은 펫 ID와 변경 전 정보를 저장하고, 후속 Step은 이를 읽어 외부 서비스를 호출한다.
+ * 후속 단계가 실패하면 각 Step의 compensate()가 이 정보를 사용해 앞선 변경을 복원한다.
  *
- * 사용 목적:
- * - 정방향 실행: 각 Step이 필요한 데이터를 읽고 결과를 저장
- * - 역방향 보상: 실패 시 원래 상태로 되돌리기 위한 정보 참조
+ * 실행 순서와 보상 호출은 SagaOrchestrator의 책임이며, 이 클래스는 데이터를 보관하는 역할만 한다.
+ * 메모리에만 존재하므로 서버 재시작 후 Saga를 재개하기 위한 영속 기록은 아니다.
  */
 @Getter
 @Builder
+@ToString
 public class AdoptionSagaContext {
+    /** 입양 승인 대상 공고 ID. 공고 서비스 호출과 다른 신청서 조회에 사용한다. */
+    private final Long announcementId;
+    /** 승인할 신청서 ID. 해당 신청서의 변경과 보상에 사용한다. */
+    private final Long applicationId;
+    /** 승인 요청자의 ID. 외부 서비스 호출 시 사용자 정보로 전달한다. */
+    private final Long userId;
+    /** 승인 요청자의 역할. 외부 서비스의 권한 검증에 사용한다. */
+    private final String userRole;
 
-    // ============ Saga 시작 시 받은 값 (변경 불가) ============
-    private final Long announcementId;  // 공고 ID
-    private final Long applicationId;   // 승인할 신청서 ID
-    private final Long userId;          // 요청한 보호소 담당자 ID
-    private final String userRole;      // 요청자 권한 (SHELTER 확인용)
-
-    // ============ Saga 실행 중 생성되는 값 (변경 가능) ============
-    // ============ Step 1: 신청서 승인 ============
-    /**
-     * DB에서 조회한 신청서 엔티티
-     * 언제 저장: Step 1 실행 시 applicationRepository.findById() 결과
-     * 어디서 사용: Step 1 보상 시 상태 복원을 위해 참조
-     */
-    @Setter
-    private Application application;
-
-    /**
-     * 신청서에서 추출한 펫 ID
-     * 언제 저장: Step 1에서 application.getPetId()로 추출
-     * 어디서 사용: Step 4에서 pet-service의 /pets/{petId}/mark-adopted 호출 시
-     */
+    /** 신청서 Step에서 추출하며, 펫 Step이 입양 완료 요청에 사용한다. */
     @Setter
     private Long petId;
 
-    /**
-     * 신청서의 원래 상태 (변경 전 백업)
-     * 언제 저장: Step 1에서 상태를 APPROVED로 변경하기 직전
-     * 어디서 사용: Step 1 보상에서 실패 시 원래 상태로 되돌림
-     */
+    /** 선택한 신청서의 실행 전 상태. 이미 APPROVED였다면 기존 승인을 보상 대상에서 제외한다. */
     @Setter
     private ApplicationStatus originalApplicationStatus;
 
-    // ============ Step 2: 다른 신청서 거절 ============
+    /** 선택한 신청서의 승인 전 처리 시각. 보상 시 복원하며, 기존 값이 없으면 null이다. */
+    @Setter
+    private LocalDateTime originalProcessedAt;
+
     /**
-     * REJECTED로 변경한 신청서들의 ID 목록
-     * 언제 저장: Step 2에서 다른 신청서들을 거절 처리한 후
-     * 어디서 사용: Step 2 보상에서 이 ID들의 상태를 SUBMITTED로 되돌림
+     * 거절 전에 SUBMITTED였던 다른 신청서의 ID 목록.
+     * 이 ID들만 벌크 거절하고, 보상 시 SUBMITTED로 복원한다.
+     * 다른 신청서는 상태만 변경하므로 처리 시각을 별도로 보관하지 않는다.
      */
     @Setter
     @Builder.Default
-    private List<Long> rejectedApplicationIds = new ArrayList<>();
+    @ToString.Exclude
+    private List<Long> submittedApplicationIds = List.of();
 
-    // ============ Step 3: 공고 완료 처리 ============
     /**
-     * announcement-service 호출 성공 여부 플래그
-     * 언제 저장: Step 3에서 /announcements/{id}/complete 호출 성공 시 true
-     * 어디서 사용: Step 3 보상에서 true면 /announcements/{id}/reopen 호출
+     * 거절 전에 UNDER_REVIEW였던 다른 신청서의 ID 목록.
+     * 이 ID들만 벌크 거절하고, 보상 시 UNDER_REVIEW로 복원한다.
+     * 전체 엔티티 대신 ID만 보관하며, 대량 ID가 로그에 출력되지 않도록 제외한다.
      */
     @Setter
     @Builder.Default
-    private boolean announcementCompleted = false;
+    @ToString.Exclude
+    private List<Long> underReviewApplicationIds = List.of();
 
-    // ============ Step 4: 펫 입양 완료 ============
+    /** 공고 완료 호출이 정상 반환하면 true. 공고 Step의 보상 여부 판단에 사용한다. */
+    @Setter
+    private boolean announcementCompleted;
+
     /**
-     * pet-service 호출 성공 여부 플래그
-     * 언제 저장: Step 4에서 /pets/{petId}/mark-adopted 호출 성공 시 true
-     * 어디서 사용: Step 4 보상에서 true면 /pets/{petId}/mark-announced 호출
+     * 펫 입양 완료 호출이 정상 반환하면 true. 펫 Step의 보상 메서드에서 확인한다.
+     * 현재는 마지막 Step이므로 성공 이후 후속 Step 실패로 보상되는 경로는 없다.
      */
     @Setter
-    @Builder.Default
-    private boolean petMarkedAsAdopted = false;
-
-    // ============ 디버깅 ============
-
-    /**
-     * 로그 출력용 상태 요약
-     * 포함 정보: 공고ID, 신청서ID, 원래상태, 거절건수, 완료플래그들
-     */
-    @Override
-    public String toString() {
-        return String.format(
-                "AdoptionSagaContext[announcementId=%d, applicationId=%d, " +
-                        "originalStatus=%s, rejectedCount=%d, announcementCompleted=%s, petAdopted=%s]",
-                announcementId,
-                applicationId,
-                originalApplicationStatus,
-                rejectedApplicationIds != null ? rejectedApplicationIds.size() : 0,
-                announcementCompleted,
-                petMarkedAsAdopted
-        );
-    }
+    private boolean petMarkedAsAdopted;
 }

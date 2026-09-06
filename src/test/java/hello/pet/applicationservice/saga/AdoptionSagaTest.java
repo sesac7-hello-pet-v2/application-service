@@ -1,203 +1,357 @@
 package hello.pet.applicationservice.saga;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
+import hello.pet.applicationservice.dto.response.AnnouncementResponse;
 import hello.pet.applicationservice.entity.Application;
 import hello.pet.applicationservice.entity.ApplicationStatus;
+import hello.pet.applicationservice.entity.info.agreement.AgreementInfo;
+import hello.pet.applicationservice.entity.info.care.*;
+import hello.pet.applicationservice.entity.info.experience.PetExperienceInfo;
+import hello.pet.applicationservice.entity.info.family.*;
+import hello.pet.applicationservice.entity.info.financial.*;
+import hello.pet.applicationservice.entity.info.housing.*;
+import hello.pet.applicationservice.entity.info.plan.FuturePlanInfo;
+import hello.pet.applicationservice.facade.AnnouncementFacade;
+import hello.pet.applicationservice.facade.PetServiceFacade;
 import hello.pet.applicationservice.repository.ApplicationRepository;
 import hello.pet.applicationservice.saga.adoption.AdoptionSagaContext;
 import hello.pet.applicationservice.saga.adoption.steps.ApproveApplicationStep;
-import hello.pet.applicationservice.saga.adoption.steps.CompleteAnnouncementStep;
-import hello.pet.applicationservice.saga.adoption.steps.MarkPetAdoptedStep;
-import hello.pet.applicationservice.saga.adoption.steps.RejectOtherApplicationsStep;
-import hello.pet.applicationservice.saga.core.SagaOrchestrator;
-import hello.pet.applicationservice.saga.core.SagaStep;
-import java.util.List;
+import hello.pet.applicationservice.service.ApplicationService;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Saga 패턴 테스트
- *
- * - Saga 실행 흐름 검증
- * - 보상 트랜잭션 동작 확인
- * - 멱등성 테스트
- */
-@ExtendWith(MockitoExtension.class)
+import static hello.pet.applicationservice.entity.ApplicationStatus.*;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+/** 실제 Spring 프록시와 DB 커밋을 검증한다. 원격 서비스 호출만 대체한다. */
+@SpringBootTest
+@ActiveProfiles("test")
 class AdoptionSagaTest {
+    @Autowired ApplicationService service;
+    @Autowired ApproveApplicationStep applicationStep;
+    @Autowired ApplicationRepository repository;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactionManager;
+    @Autowired jakarta.persistence.EntityManagerFactory entityManagerFactory;
+    @MockitoBean AnnouncementFacade announcementFacade;
+    @MockitoBean PetServiceFacade petServiceFacade;
 
-    @Mock
-    private SagaOrchestrator sagaOrchestrator;
-
-    @Mock
-    private ApproveApplicationStep approveApplicationStep;
-
-    @Mock
-    private RejectOtherApplicationsStep rejectOtherApplicationsStep;
-
-    @Mock
-    private CompleteAnnouncementStep completeAnnouncementStep;
-
-    @Mock
-    private MarkPetAdoptedStep markPetAdoptedStep;
-
-    @Mock
-    private ApplicationRepository applicationRepository;
-
-    private AdoptionSagaContext context;
+    private Long selected;
+    private Long submitted;
+    private Long reviewing;
+    private Long alreadyRejected;
+    private Long unrelated;
+    private LocalDateTime rejectedAt;
 
     @BeforeEach
     void setUp() {
-        // 테스트용 Context 생성
-        context = AdoptionSagaContext.builder()
-                                     .announcementId(1L)
-                                     .applicationId(100L)
-                                     .userId(10L)
-                                     .userRole("SHELTER")
-                                     .build();
+        repository.deleteAll();
+        selected = save(1L, UNDER_REVIEW);
+        submitted = save(1L, SUBMITTED);
+        reviewing = save(1L, UNDER_REVIEW);
+        alreadyRejected = save(1L, REJECTED);
+        unrelated = save(2L, SUBMITTED);
+        rejectedAt = repository.findById(alreadyRejected).orElseThrow().getProcessedAt();
+        AnnouncementResponse announcement = mock(AnnouncementResponse.class);
+        when(announcement.getShelterId()).thenReturn(10L);
+        when(announcementFacade.getAnnouncement(1L)).thenReturn(announcement);
     }
 
     @Test
-    @DisplayName("Saga 정상 실행 - 모든 Step 성공")
-    void testSagaSuccessfulExecution() throws Exception {
-        // given
-        // Context는 이미 setUp에서 초기화됨
+    void commitsAllApplicationChangesBeforeCallingAnnouncement() {
+        doAnswer(call -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertApproved(); // 별도 DB 조회로 다음 단계 전에 커밋되었음을 확인
+            return null;
+        }).when(announcementFacade).completeAnnouncement(1L, 10L);
 
-        // when
-        // Step들을 순차적으로 실행
-        approveApplicationStep.execute(context);
-        rejectOtherApplicationsStep.execute(context);
-        completeAnnouncementStep.execute(context);
-        markPetAdoptedStep.execute(context);
+        approve();
 
-        // then
-        verify(approveApplicationStep, times(1)).execute(context);
-        verify(rejectOtherApplicationsStep, times(1)).execute(context);
-        verify(completeAnnouncementStep, times(1)).execute(context);
-        verify(markPetAdoptedStep, times(1)).execute(context);
+        assertApproved();
+        verify(petServiceFacade).markAsAdopted(5L, 10L, "SHELTER");
     }
 
     @Test
-    @DisplayName("Step 3 실패 시 보상 - Step 2, 1 보상 실행")
-    void testCompensationOnStep3Failure() throws Exception {
-        // given
-        // completeAnnouncementStep.execute()가 호출되면 무조건 예외를 발생시켜라
-        doThrow(new RuntimeException("공고 완료 실패")).when(completeAnnouncementStep).execute(any());
+    void suspendsCallerTransactionWhileRunningSaga() {
+        doAnswer(call -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertApproved();
+            return null;
+        }).when(announcementFacade).completeAnnouncement(1L, 10L);
 
-        // when
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            approve();
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            status.setRollbackOnly();
+        });
+        assertApproved();
+    }
+
+    @Test
+    void announcementFailureRestoresBothPendingStatusesAndProcessingTimes() {
+        doAnswer(call -> {
+            assertApproved();
+            throw new IllegalStateException("공고 변경 거부");
+        }).when(announcementFacade).completeAnnouncement(1L, 10L);
+
+        assertThatThrownBy(this::approve).isInstanceOf(RuntimeException.class);
+
+        assertRestored();
+        verifyNoInteractions(petServiceFacade);
+        verify(announcementFacade, never()).reopenAnnouncement(anyLong(), anyLong());
+    }
+
+    @Test
+    void petFailureCompensatesAnnouncementBeforeApplications() {
+        doThrow(new IllegalStateException("펫 변경 거부"))
+                .when(petServiceFacade).markAsAdopted(5L, 10L, "SHELTER");
+        doAnswer(call -> {
+            assertApproved(); // 공고 보상 시점에는 신청서 보상이 아직 실행되지 않았다.
+            return null;
+        }).when(announcementFacade).reopenAnnouncement(1L, 10L);
+
+        assertThatThrownBy(this::approve).isInstanceOf(RuntimeException.class);
+
+        verify(announcementFacade).reopenAnnouncement(1L, 10L);
+        assertRestored();
+    }
+
+    @Test
+    void bulkUpdateFailureRollsBackApprovalAndEarlierBatchAndDoesNotCallRemoteMutation() {
+        jdbc.execute("alter table applications add constraint reject_failure check (id <> "
+                + reviewing + " or status <> 'REJECTED')");
         try {
-            approveApplicationStep.execute(context);
-            rejectOtherApplicationsStep.execute(context);
-            completeAnnouncementStep.execute(context); // 실패 발생
-        } catch (RuntimeException e) {
-            // 보상 실행 (역순)
-            rejectOtherApplicationsStep.compensate(context);
-            approveApplicationStep.compensate(context);
+            assertThatThrownBy(this::approve).isInstanceOf(RuntimeException.class);
+            assertRestored();
+            verify(announcementFacade, never()).completeAnnouncement(anyLong(), anyLong());
+            verifyNoInteractions(petServiceFacade);
+        } finally {
+            jdbc.execute("alter table applications drop constraint reject_failure");
         }
-
-        // then
-        // 실행 검증
-        verify(approveApplicationStep, times(1)).execute(context);
-        verify(rejectOtherApplicationsStep, times(1)).execute(context);
-        verify(completeAnnouncementStep, times(1)).execute(context);
-
-        // 보상 검증
-        verify(rejectOtherApplicationsStep, times(1)).compensate(context);
-        verify(approveApplicationStep, times(1)).compensate(context);
-
-        // Step 4는 실행되지 않음
-        verify(markPetAdoptedStep, never()).execute(any());
     }
 
     @Test
-    @DisplayName("멱등성 테스트 - 이미 승인된 신청서")
-    void testIdempotency_AlreadyApproved() throws Exception {
-        // given
-        Application mockApplication = mock(Application.class);
-        when(mockApplication.getStatus()).thenReturn(ApplicationStatus.APPROVED);
-
-        when(applicationRepository.findById(100L))
-                .thenReturn(java.util.Optional.of(mockApplication));
-
-        // when
-        ApproveApplicationStep step = new ApproveApplicationStep(applicationRepository);
-        step.execute(context);
-
-        // then
-        // 이미 APPROVED 상태이므로 상태 변경을 하지 않음
-        verify(mockApplication, never()).changeStatus(any());
+    void compensationCanBeRepeatedWithoutChangingRestoredData() {
+        AdoptionSagaContext context = AdoptionSagaContext.builder()
+                .announcementId(1L).applicationId(selected).userId(10L).userRole("SHELTER").build();
+        applicationStep.execute(context);
+        assertApproved();
+        applicationStep.compensate(context);
+        applicationStep.compensate(context);
+        assertRestored();
     }
 
     @Test
-    @DisplayName("보상 멱등성 - 이미 원래 상태인 경우")
-    void testCompensationIdempotency() throws Exception {
-        // given
-        context.setOriginalApplicationStatus(ApplicationStatus.SUBMITTED);
+    void compensationFailureRollsBackAllLocalRestorations() {
+        AdoptionSagaContext context = AdoptionSagaContext.builder()
+                .announcementId(1L).applicationId(selected).userId(10L).userRole("SHELTER").build();
+        applicationStep.execute(context);
+        // 다른 변경이 끼어들어 복원할 상태와 맞지 않는 경우 전체 보상을 롤백한다.
+        jdbc.update("update applications set status = 'SUBMITTED' where id = ?", reviewing);
 
-        Application mockApplication = mock(Application.class);
-        when(mockApplication.getStatus()).thenReturn(ApplicationStatus.SUBMITTED);
-        when(applicationRepository.findById(100L))
-                .thenReturn(java.util.Optional.of(mockApplication));
+        assertThatThrownBy(() -> applicationStep.compensate(context))
+                .isInstanceOf(IllegalStateException.class);
 
-        // when
-        ApproveApplicationStep step = new ApproveApplicationStep(applicationRepository);
-        step.compensate(context);
-
-        // then
-        // 이미 SUBMITTED 상태이므로 변경하지 않음
-        verify(mockApplication, never()).changeStatus(any());
+        assertStatus(selected, APPROVED);
+        assertStatus(submitted, REJECTED);
+        assertStatus(reviewing, SUBMITTED);
     }
 
     @Test
-    @DisplayName("Context 데이터 전달 확인")
-    void testContextDataSharing() {
-        // given
-        Long petId = 5L;
-        ApplicationStatus originalStatus = ApplicationStatus.SUBMITTED;
-        List<Long> rejectedIds = List.of(101L, 102L, 103L);
+    void restoresExistingProcessingTimestamp() {
+        LocalDateTime original = LocalDateTime.of(2025, 1, 2, 3, 4, 5);
+        jdbc.update("update applications set processed_at = ? where id = ?", original, selected);
+        AdoptionSagaContext context = AdoptionSagaContext.builder()
+                .announcementId(1L).applicationId(selected).userId(10L).userRole("SHELTER").build();
 
-        // when
-        context.setPetId(petId);
-        context.setOriginalApplicationStatus(originalStatus);
-        context.setRejectedApplicationIds(rejectedIds);
-        context.setAnnouncementCompleted(true);
-        context.setPetMarkedAsAdopted(true);
+        applicationStep.execute(context);
+        applicationStep.compensate(context);
 
-        // then
-        assertThat(context.getPetId()).isEqualTo(petId);
-        assertThat(context.getOriginalApplicationStatus()).isEqualTo(originalStatus);
-        assertThat(context.getRejectedApplicationIds()).hasSize(3);
-        assertThat(context.isAnnouncementCompleted()).isTrue();
-        assertThat(context.isPetMarkedAsAdopted()).isTrue();
+        Application restored = repository.findById(selected).orElseThrow();
+        assertThat(restored.getStatus()).isEqualTo(UNDER_REVIEW);
+        assertThat(restored.getProcessedAt()).isEqualTo(original);
     }
 
     @Test
-    @DisplayName("Saga Orchestrator 호출 검증")
-    void testSagaOrchestratorInvocation() throws Exception {
-        // given
-        List<SagaStep<AdoptionSagaContext>> mockSteps = List.of(
-                approveApplicationStep,
-                rejectOtherApplicationsStep,
-                completeAnnouncementStep,
-                markPetAdoptedStep
-        );
+    void manyApplicationsUseIdQueriesAndBulkUpdatesWithoutLoadingOtherEntities() {
+        for (int i = 0; i < 501; i++) {
+            save(1L, UNDER_REVIEW);
+        }
+        AdoptionSagaContext context = AdoptionSagaContext.builder()
+                .announcementId(1L).applicationId(selected).userId(10L).userRole("SHELTER").build();
+        org.hibernate.stat.Statistics statistics = entityManagerFactory
+                .unwrap(org.hibernate.SessionFactory.class).getStatistics();
+        boolean wasEnabled = statistics.isStatisticsEnabled();
+        statistics.setStatisticsEnabled(true);
+        statistics.clear();
+        try {
+            applicationStep.execute(context);
+            assertThat(statistics.getEntityLoadCount()).isEqualTo(1);
+            assertThat(statistics.getEntityUpdateCount()).isEqualTo(1);
+            assertThat(context.getSubmittedApplicationIds()).containsExactly(submitted);
+            assertThat(context.getUnderReviewApplicationIds()).hasSize(502);
+            assertThat(repository.countByIdInAndStatus(context.getUnderReviewApplicationIds(), REJECTED))
+                    .isEqualTo(502);
+            applicationStep.compensate(context);
+            assertThat(statistics.getEntityLoadCount()).isEqualTo(2);
+            assertThat(repository.countByIdInAndStatus(context.getUnderReviewApplicationIds(), UNDER_REVIEW))
+                    .isEqualTo(502);
+            assertRestored();
+        } finally {
+            statistics.setStatisticsEnabled(wasEnabled);
+        }
+    }
 
-        // when
-        sagaOrchestrator.execute(mockSteps, context);
+    @Test
+    void noOtherApplicationsStillCommitsAndCompensatesSelectedApplication() {
+        repository.deleteById(submitted);
+        repository.deleteById(reviewing);
+        AdoptionSagaContext context = AdoptionSagaContext.builder()
+                .announcementId(1L).applicationId(selected).userId(10L).userRole("SHELTER").build();
+        applicationStep.execute(context);
+        assertStatus(selected, APPROVED);
+        assertThat(context.getSubmittedApplicationIds()).isEmpty();
+        assertThat(context.getUnderReviewApplicationIds()).isEmpty();
+        applicationStep.compensate(context);
+        assertStatus(selected, UNDER_REVIEW);
+        assertThat(repository.findById(selected).orElseThrow().getProcessedAt()).isNull();
+        assertUntouched();
+    }
 
-        // then
-        verify(sagaOrchestrator).execute(eq(mockSteps), eq(context));
+    @Test
+    void bulkRejectionPreservesOtherApplicationsProcessingTimes() {
+        LocalDateTime original = LocalDateTime.of(2025, 1, 2, 3, 4, 5);
+        jdbc.update("update applications set processed_at = ? where id = ?", original, reviewing);
+        AdoptionSagaContext context = AdoptionSagaContext.builder()
+                .announcementId(1L).applicationId(selected).userId(10L).userRole("SHELTER").build();
+        applicationStep.execute(context);
+        assertThat(repository.findById(reviewing).orElseThrow().getProcessedAt()).isEqualTo(original);
+        applicationStep.compensate(context);
+        assertThat(repository.findById(reviewing).orElseThrow().getProcessedAt()).isEqualTo(original);
+        assertStatus(reviewing, UNDER_REVIEW);
+    }
+
+    @Test
+    void wrongAnnouncementDoesNotChangeApplications() {
+        assertThatThrownBy(() -> service.approveApplication(1L, unrelated, 10L, "SHELTER"))
+                .isInstanceOf(RuntimeException.class);
+        assertRestored();
+        verify(announcementFacade, never()).completeAnnouncement(anyLong(), anyLong());
+    }
+
+    @Test
+    void alreadyApprovedRequestContinuesWithoutChangingPreviousApproval() {
+        LocalDateTime original = LocalDateTime.of(2025, 1, 2, 3, 4, 5);
+        jdbc.update("update applications set status = 'APPROVED', processed_at = ? where id = ?",
+                original, selected);
+
+        approve();
+
+        assertApproved();
+        assertThat(repository.findById(selected).orElseThrow().getProcessedAt()).isEqualTo(original);
+        verify(announcementFacade).completeAnnouncement(1L, 10L);
+        verify(petServiceFacade).markAsAdopted(5L, 10L, "SHELTER");
+    }
+
+    @Test
+    void retryFailureRestoresOnlyApplicationsChangedByThisAttempt() {
+        LocalDateTime original = LocalDateTime.of(2025, 1, 2, 3, 4, 5);
+        jdbc.update("update applications set status = 'APPROVED', processed_at = ? where id = ?",
+                original, selected);
+        doAnswer(call -> {
+            assertApproved();
+            throw new IllegalStateException("공고 변경 거부");
+        }).when(announcementFacade).completeAnnouncement(1L, 10L);
+
+        assertThatThrownBy(this::approve).isInstanceOf(RuntimeException.class);
+
+        assertStatus(selected, APPROVED);
+        assertThat(repository.findById(selected).orElseThrow().getProcessedAt()).isEqualTo(original);
+        assertStatus(submitted, SUBMITTED);
+        assertStatus(reviewing, UNDER_REVIEW);
+        assertUntouched();
+        verifyNoInteractions(petServiceFacade);
+    }
+
+    @Test
+    void retryAfterCompletedApprovalDoesNotUndoPreviouslyRejectedApplications() {
+        approve();
+        LocalDateTime original = repository.findById(selected).orElseThrow().getProcessedAt();
+        doThrow(new IllegalStateException("펫 요청 실패"))
+                .when(petServiceFacade).markAsAdopted(5L, 10L, "SHELTER");
+
+        assertThatThrownBy(this::approve).isInstanceOf(RuntimeException.class);
+
+        assertApproved();
+        assertThat(repository.findById(selected).orElseThrow().getProcessedAt()).isEqualTo(original);
+    }
+
+    @Test
+    void rejectedApplicationCannotBeApproved() {
+        assertThatThrownBy(() -> service.approveApplication(1L, alreadyRejected, 10L, "SHELTER"))
+                .isInstanceOf(RuntimeException.class);
+        assertRestored();
+        verify(announcementFacade, never()).completeAnnouncement(anyLong(), anyLong());
+    }
+
+    private void approve() {
+        service.approveApplication(1L, selected, 10L, "SHELTER");
+    }
+
+    private void assertApproved() {
+        assertStatus(selected, APPROVED);
+        assertStatus(submitted, REJECTED);
+        assertStatus(reviewing, REJECTED);
+        assertThat(repository.findById(selected).orElseThrow().getProcessedAt()).isNotNull();
+        // 기존 벌크 거절과 동일하게 다른 신청서는 상태만 변경한다.
+        assertThat(repository.findById(submitted).orElseThrow().getProcessedAt()).isNull();
+        assertThat(repository.findById(reviewing).orElseThrow().getProcessedAt()).isNull();
+        assertUntouched();
+    }
+
+    private void assertRestored() {
+        assertStatus(selected, UNDER_REVIEW);
+        assertStatus(submitted, SUBMITTED);
+        assertStatus(reviewing, UNDER_REVIEW);
+        for (Long id : java.util.List.of(selected, submitted, reviewing)) {
+            assertThat(repository.findById(id).orElseThrow().getProcessedAt()).isNull();
+        }
+        assertUntouched();
+    }
+
+    private void assertUntouched() {
+        assertStatus(unrelated, SUBMITTED);
+        assertStatus(alreadyRejected, REJECTED);
+        assertThat(repository.findById(alreadyRejected).orElseThrow().getProcessedAt()).isEqualTo(rejectedAt);
+    }
+
+    private void assertStatus(Long id, ApplicationStatus status) {
+        assertThat(jdbc.queryForObject("select status from applications where id = ?", String.class, id))
+                .isEqualTo(status.name());
+    }
+
+    private Long save(Long announcementId, ApplicationStatus status) {
+        Application application = Application.builder()
+                .userId(20L).announcementId(announcementId).petId(5L).reason("입양 신청")
+                .agreementInfo(new AgreementInfo(true, true, true))
+                .housingInfo(new HousingInfo(HousingType.values()[0], ResidenceType.values()[0], true,
+                        PetLivingPlace.values()[0], HouseSizeRange.values()[0]))
+                .familyInfo(new FamilyInfo(1, false, FamilyAgreement.values()[0], false))
+                .careInfo(new CareInfo(AbsenceTime.values()[0], CareTime.values()[0]))
+                .financialInfo(new FinancialInfo(MonthlyBudget.values()[0], true))
+                .petExperienceInfo(new PetExperienceInfo(false, "없음"))
+                .futurePlanInfo(new FuturePlanInfo(true, "돌봄 계획"))
+                .build();
+        application.changeStatus(status);
+        return repository.saveAndFlush(application).getId();
     }
 }

@@ -94,6 +94,24 @@ public class Application {
         this.agreementInfo = agreementInfo;
     }
 
+    /** 이번 입양 승인에서 변경한 상태와 처리 시각을 보상한다. */
+    public void restoreAfterAdoptionApproval(ApplicationStatus expectedStatus,
+                                            ApplicationStatus originalStatus,
+                                            LocalDateTime originalProcessedAt) {
+        if (originalStatus != ApplicationStatus.SUBMITTED && originalStatus != ApplicationStatus.UNDER_REVIEW) {
+            throw new IllegalArgumentException("승인 전 신청 상태로만 복원할 수 있습니다.");
+        }
+        if (status == originalStatus && java.util.Objects.equals(processedAt, originalProcessedAt)) {
+            return;
+        }
+        if ((expectedStatus != ApplicationStatus.APPROVED && expectedStatus != ApplicationStatus.REJECTED)
+                || status != expectedStatus) {
+            throw new IllegalStateException("신청서 상태가 변경되어 보상할 수 없습니다. id=" + id);
+        }
+        status = originalStatus;
+        processedAt = originalProcessedAt;
+    }
+
     public void changeStatus(ApplicationStatus newStatus) {
         if (this.status == ApplicationStatus.APPROVED || this.status == ApplicationStatus.REJECTED) {
             throw new AlreadyProcessedApplicationException();
