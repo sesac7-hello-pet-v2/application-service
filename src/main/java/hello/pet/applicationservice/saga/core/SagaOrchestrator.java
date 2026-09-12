@@ -55,13 +55,12 @@ public class SagaOrchestrator {
                 log.error("[SAGA-{}] Step {}/{}: {} ❌ 실패 - {}",
                         sagaId, i + 1, steps.size(), step.getName(), e.getMessage());
 
-                // 보상 트랜잭션 실행
-                compensate(completedSteps, context, sagaId);
-
-                // 원본 예외를 포함한 Saga 예외 발생
-                throw new SagaExecutionException(
+                // 원래 실패를 유지하면서 보상 실패도 같은 예외에 추가한다.
+                SagaExecutionException failure = new SagaExecutionException(
                         String.format("Saga 실행 실패 - Step: %s", step.getName()), e
                 );
+                compensate(completedSteps, context, sagaId, failure);
+                throw failure;
             }
         }
 
@@ -73,14 +72,16 @@ public class SagaOrchestrator {
      *
      * 보상 원칙
      * - 역순 실행: 마지막으로 성공한 Step부터 보상
-     * - 실패 무시: 개별 보상 실패와 관계없이 전체 보상은 계속 진행
+     * - 실패 수집: 개별 보상 실패를 보존하고 나머지 보상은 계속 진행
      * - 상세 로깅: 모든 보상 과정을 기록
      *
      * @param completedSteps 성공한 Step 목록
      * @param context        Saga 컨텍스트
      * @param sagaId         Saga 실행 ID
+     * @param failure        원래 작업 실패와 보상 실패를 함께 전달할 예외
      */
-    private <T> void compensate(List<SagaStep<T>> completedSteps, T context, String sagaId) {
+    private <T> void compensate(List<SagaStep<T>> completedSteps, T context, String sagaId,
+                                SagaExecutionException failure) {
         if (completedSteps.isEmpty()) {
             log.info("[SAGA-{}] 보상할 Step이 없습니다", sagaId);
             return;
@@ -103,14 +104,18 @@ public class SagaOrchestrator {
                         sagaId, completedSteps.size() - i, completedSteps.size(), step.getName());
 
             } catch (Exception e) {
-                // 보상 실패 시 로그만 남기고 계속 진행
-                // 확장 계획 - 재시도, Dead Letter Queue, 수동 개입 알림 필요
-                log.error("[SAGA-{}] 보상 실패: {} - 계속 진행합니다. 오류: {}",
-                        sagaId, step.getName(), e.getMessage());
+                failure.addSuppressed(new IllegalStateException("보상 실패 - Step: " + step.getName(), e));
+                log.error("[SAGA-{}] 보상 실패: {} - 나머지 보상을 계속 진행합니다.",
+                        sagaId, step.getName(), e);
             }
         }
 
-        log.warn("[SAGA-{}] ========== 보상 완료 ==========", sagaId);
+        if (failure.hasCompensationFailures()) {
+            log.error("[SAGA-{}] ========== 보상 미완료 (실패 {}건) ==========",
+                    sagaId, failure.getSuppressed().length);
+        } else {
+            log.warn("[SAGA-{}] ========== 보상 완료 ==========", sagaId);
+        }
     }
 
     /**

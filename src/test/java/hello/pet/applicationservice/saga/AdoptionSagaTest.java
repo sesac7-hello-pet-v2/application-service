@@ -17,6 +17,7 @@ import hello.pet.applicationservice.repository.ApplicationRepository;
 import hello.pet.applicationservice.saga.adoption.AdoptionSagaContext;
 import hello.pet.applicationservice.saga.adoption.steps.ApproveApplicationStep;
 import hello.pet.applicationservice.service.ApplicationService;
+import hello.pet.applicationservice.saga.core.SagaExecutionException;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -299,6 +300,23 @@ class AdoptionSagaTest {
         assertApproved();
         assertThat(repository.findById(selected).orElseThrow().getProcessedAt()).isEqualTo(original);
         verify(announcementFacade, never()).cancelAnnouncementCompletion(anyLong(), anyLong());
+    }
+
+    @Test
+    void announcementCompensationFailureStillRestoresApplicationsAndReachesCaller() {
+        RuntimeException original = new IllegalStateException("펫 처리 실패");
+        RuntimeException compensation = new IllegalStateException("공고 보상 실패");
+        doThrow(original).when(petServiceFacade).markAsAdopted(5L, 10L, "SHELTER");
+        doThrow(compensation).when(announcementFacade).cancelAnnouncementCompletion(1L, 10L);
+
+        SagaExecutionException failure = org.junit.jupiter.api.Assertions.assertThrows(
+                SagaExecutionException.class, this::approve);
+
+        assertRestored();
+        assertThat(failure.getCause()).isSameAs(original);
+        assertThat(failure.hasCompensationFailures()).isTrue();
+        assertThat(failure.getSuppressed()).hasSize(1);
+        assertThat(failure.getSuppressed()[0]).hasMessageContaining("공고 완료 처리").hasCause(compensation);
     }
 
     @Test

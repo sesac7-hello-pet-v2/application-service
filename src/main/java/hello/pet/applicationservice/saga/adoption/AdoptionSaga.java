@@ -91,8 +91,9 @@ public class AdoptionSaga {
             return ApplicationApprovalResponse.of(announcementId, applicationId);
 
         } catch (SagaExecutionException e) {
-            log.error("입양 승인 Saga 실패 - 보상 시도 종료. context: {}", context, e);
-            throw new RuntimeException("입양 승인 처리 중 오류가 발생했습니다: " + e.getMessage(), e);
+            log.error("입양 승인 Saga 실패 - 보상 실패 여부: {}. context: {}",
+                    e.hasCompensationFailures(), context, e);
+            throw e;
         }
     }
 

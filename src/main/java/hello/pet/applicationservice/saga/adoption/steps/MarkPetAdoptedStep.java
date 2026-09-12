@@ -83,8 +83,7 @@ public class MarkPetAdoptedStep implements SagaStep<AdoptionSagaContext> {
             log.warn("펫 입양 취소 성공 - petId: {}", context.getPetId());
 
         } catch (Exception e) {
-            // 보상 실패는 로그만 남기고 진행
-            // 확장 계획 - 재시도, Dead Letter Queue, 수동 개입 알림 필요
+            // 실패를 다시 던져 오케스트레이터가 보존하고 나머지 보상을 계속하도록 한다.
             log.error("펫 입양 취소 실패 - petId: {}, 오류: {}. 수동 처리 필요!",
                     context.getPetId(), e.getMessage());
             throw e; // 상위(SagaOrchestrator)에서 처리
