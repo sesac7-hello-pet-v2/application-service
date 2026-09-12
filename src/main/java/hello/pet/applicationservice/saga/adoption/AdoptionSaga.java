@@ -17,19 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 역할: Saga의 진입점이자 조정자
- * - Saga Steps 정의 및 실행 관리
- * - SagaOrchestrator에게 실행 위임
- * - AdoptionSagaContext 생성 및 초기화
- *
- * 실행 순서
- * - 신청서 승인 및 다른 신청서 거절 (하나의 로컬 트랜잭션)
- * - 공고 상태 완료 처리 (외부 서비스)
- * - 펫 입양 처리 (외부 서비스)
- *
- * 실패 시 위 단계를 역순으로 보상 처리
- */
+/** 입양 승인 순서를 정의하고, 실행과 보상은 SagaOrchestrator에 맡긴다. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -38,21 +26,11 @@ public class AdoptionSaga {
     private final SagaOrchestrator sagaOrchestrator;
     private final AnnouncementFacade announcementFacade;
 
-    // Saga Steps
     private final ApproveApplicationStep approveApplicationStep;
     private final CompleteAnnouncementStep completeAnnouncementStep;
     private final MarkPetAdoptedStep markPetAdoptedStep;
 
-    /**
-     * 입양 승인 Saga 실행
-     *
-     * @param announcementId 공고 ID
-     * @param applicationId  신청서 ID
-     * @param userId         사용자 ID
-     * @param userRole       사용자 역할
-     * @return 승인 응답
-     * @throws SagaExecutionException Saga 실행 실패 시
-     */
+    // 전체를 한 트랜잭션으로 묶지 않는다. 각 Step의 커밋 후 다음 단계로 진행한다.
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ApplicationApprovalResponse execute(
             Long announcementId,
@@ -63,10 +41,9 @@ public class AdoptionSaga {
         log.info("입양 승인 Saga 시작 - announcementId: {}, applicationId: {}",
                 announcementId, applicationId);
 
-        // 권한 검증 (Saga 실행 전)
         validatePermission(announcementId, userId, userRole);
 
-        // Saga Context 생성
+        // 요청마다 하나의 Context를 만들어 모든 Step이 공유한다.
         AdoptionSagaContext context = AdoptionSagaContext.builder()
                                                          .announcementId(announcementId)
                                                          .applicationId(applicationId)
@@ -74,40 +51,37 @@ public class AdoptionSaga {
                                                          .userRole(userRole)
                                                          .build();
 
-        // Saga Steps 실핸 순서 정의
+        // 신청서 승인·거절 → 공고 완료 → 펫 입양 완료 순서로 실행한다.
         List<SagaStep<AdoptionSagaContext>> steps = Arrays.asList(
-                approveApplicationStep,           // Step 1: 신청서 승인 및 다른 신청서 거절
-                completeAnnouncementStep,         // Step 2: 공고 완료
-                markPetAdoptedStep                // Step 3: 펫 입양 처리
+                approveApplicationStep,
+                completeAnnouncementStep,
+                markPetAdoptedStep
         );
 
         try {
-            // Saga 실행
             sagaOrchestrator.execute(steps, context);
 
             log.info("입양 승인 Saga 성공 - context: {}", context);
 
-            // 응답 생성
             return ApplicationApprovalResponse.of(announcementId, applicationId);
 
         } catch (SagaExecutionException e) {
-            log.error("입양 승인 Saga 실패 - 보상 시도 종료. context: {}", context, e);
-            throw new RuntimeException("입양 승인 처리 중 오류가 발생했습니다: " + e.getMessage(), e);
+            log.error("입양 승인 Saga 실패 - 보상 실패 여부: {}. context: {}",
+                    e.hasCompensationFailures(), context, e);
+            // 원래 실패와 보상 실패 정보가 담긴 예외를 그대로 전달한다.
+            throw e;
         }
     }
 
     private void validatePermission(Long announcementId, Long userId, String userRole) {
-        // 1. 보호소 권한 확인 (DB 조회 전에 먼저 체크)
         if (!"SHELTER".equals(userRole)) {
             throw new IllegalArgumentException(
                     "보호소 담당자만 입양 승인이 가능합니다. 현재 권한: " + userRole
             );
         }
 
-        // 2. 공고 정보 조회 (명시적 타입 사용)
         AnnouncementResponse announcement = announcementFacade.getAnnouncement(announcementId);
 
-        // 3. 공고 소유권 확인
         if (!announcement.getShelterId().equals(userId)) {
             throw new IllegalArgumentException(
                     "다른 보호소의 공고는 승인할 수 없습니다. " +
