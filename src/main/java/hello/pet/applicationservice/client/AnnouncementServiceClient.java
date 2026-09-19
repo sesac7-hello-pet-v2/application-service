@@ -25,7 +25,4 @@ public interface AnnouncementServiceClient {
     @PatchMapping("/{id}/cancel-completion")
     void cancelAnnouncementCompletion(@PathVariable("id") Long id,
             @RequestHeader("X-User-Id") Long userId);
-
-    @PatchMapping("/{id}/reopen")
-    void reopenAnnouncement(@PathVariable("id") Long id, @RequestHeader("X-User-Id") Long userId);
 }

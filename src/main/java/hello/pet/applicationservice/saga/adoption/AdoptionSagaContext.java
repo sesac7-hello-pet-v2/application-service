@@ -8,44 +8,37 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 
-/** Step 사이에 전달할 값과 보상 정보를 담는다. 메모리에만 있어 재시작 후에는 복구할 수 없다. */
+// 입양 승인 한 건을 처리하는 동안 각 Step이 공유할 요청 정보와 복원 정보를 보관한다.
 @Getter
+@Setter
 @Builder
 @ToString
 public class AdoptionSagaContext {
-    // 입양 승인 요청 정보
+    // 승인 대상과 요청자 정보
     private final Long announcementId;
     private final Long applicationId;
     private final Long userId;
     private final String userRole;
 
-    // 신청서에서 추출해 펫 서비스 호출에 사용한다.
-    @Setter
+    // 입양 처리할 펫의 ID
     private Long petId;
 
-    // 선택 신청서의 변경 전 값. 이미 APPROVED였다면 기존 승인을 보상하지 않는다.
-    @Setter
+    // 보상 시 복원할 신청서 상태
     private ApplicationStatus originalApplicationStatus;
 
-    @Setter
+    // 보상 시 복원할 신청서 처리 시각
     private LocalDateTime originalProcessedAt;
 
-    // 이번에 거절할 대상을 이전 상태별 ID로 보관하고, 보상 시 각 상태로 되돌린다.
-    @Setter
+    // 접수 상태에서 거절할 신청서 ID. 보상 시 이전 상태로 복원하는 데 사용
     @Builder.Default
     @ToString.Exclude
     private List<Long> submittedApplicationIds = List.of();
 
-    @Setter
+    // 심사 중 상태에서 거절할 신청서 ID. 보상 시 이전 상태로 복원하는 데 사용
     @Builder.Default
     @ToString.Exclude
     private List<Long> underReviewApplicationIds = List.of();
 
-    // 공고 서비스가 이번 요청에서 실제로 변경했다고 응답한 경우에만 true.
-    @Setter
-    private boolean announcementCompleted;
-
-    // 펫 호출이 정상 반환했는지 기록한다. 현재 마지막 Step이라 성공 후 보상 경로는 없다.
-    @Setter
-    private boolean petMarkedAsAdopted;
+    // 이번 요청의 공고 변경 여부. 공고 보상이 필요한지 판단
+    private boolean announcementChanged;
 }

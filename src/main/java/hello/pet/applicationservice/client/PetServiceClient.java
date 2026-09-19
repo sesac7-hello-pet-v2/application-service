@@ -13,12 +13,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 public interface PetServiceClient {
 
     @PatchMapping("/{petId}/mark-adopted")
-    void markAsAdopted(@PathVariable("petId") Long petId,
+    void completeAdoption(@PathVariable("petId") Long petId,
                        @RequestHeader("X-User-Id") Long userId,
                        @RequestHeader("X-User-Role") String userRole);
-
-    @PatchMapping("/{petId}/mark-announced")
-    void markAsAnnounced(@PathVariable("petId") Long petId,
-                         @RequestHeader("X-User-Id") Long userId,
-                         @RequestHeader("X-User-Role") String userRole);
 }

@@ -18,6 +18,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
@@ -94,22 +95,35 @@ public class Application {
         this.agreementInfo = agreementInfo;
     }
 
-    /** 이번 입양 승인에서 변경한 상태와 처리 시각을 보상한다. */
-    public void restoreAfterAdoptionApproval(ApplicationStatus expectedStatus,
-                                            ApplicationStatus originalStatus,
-                                            LocalDateTime originalProcessedAt) {
-        if (originalStatus != ApplicationStatus.SUBMITTED && originalStatus != ApplicationStatus.UNDER_REVIEW) {
+    public void restorePreviousState(ApplicationStatus originalStatus, LocalDateTime originalProcessedAt) {
+        if (originalStatus != ApplicationStatus.SUBMITTED
+                && originalStatus != ApplicationStatus.UNDER_REVIEW) {
             throw new IllegalArgumentException("승인 전 신청 상태로만 복원할 수 있습니다.");
         }
-        if (status == originalStatus && java.util.Objects.equals(processedAt, originalProcessedAt)) {
+
+        // 이미 복원됐다면 다시 변경하지 않는다.
+        if (status == originalStatus && Objects.equals(processedAt, originalProcessedAt)) {
             return;
         }
-        if ((expectedStatus != ApplicationStatus.APPROVED && expectedStatus != ApplicationStatus.REJECTED)
-                || status != expectedStatus) {
+
+        if (status != ApplicationStatus.APPROVED) {
             throw new IllegalStateException("신청서 상태가 변경되어 보상할 수 없습니다. id=" + id);
         }
+
         status = originalStatus;
         processedAt = originalProcessedAt;
+    }
+
+    public void validateApproval(Long announcementId) {
+        if (!announcementId.equals(this.announcementId)) {
+            throw new IllegalArgumentException("해당 공고의 신청서가 아닙니다.");
+        }
+        if (status == ApplicationStatus.APPROVED) {
+            throw new IllegalArgumentException("이미 승인된 신청서입니다.");
+        }
+        if (status != ApplicationStatus.SUBMITTED && status != ApplicationStatus.UNDER_REVIEW) {
+            throw new IllegalStateException("승인 가능한 신청서 상태가 아닙니다.");
+        }
     }
 
     public void changeStatus(ApplicationStatus newStatus) {
