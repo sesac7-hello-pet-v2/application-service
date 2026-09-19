@@ -173,17 +173,13 @@ public class ApplicationService {
     }
 
     /**
-     * Saga 패턴으로 입양 신청 승인 과정 처리
+     * 입양 승인과 서비스 간 보상 처리를 Saga 패턴으로 구현
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ApplicationApprovalResponse approveApplication(Long announcementId,
                                                           Long applicationId,
                                                           Long userId,
                                                           String userRole) {
-        log.info("입양 신청 승인 시작 (Saga 패턴) - announcementId: {}, applicationId: {}",
-                announcementId, applicationId);
-
-        // Saga 패턴으로 처리 위임
         return adoptionSaga.execute(announcementId, applicationId, userId, userRole);
     }
 

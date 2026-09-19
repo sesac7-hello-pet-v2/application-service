@@ -47,7 +47,7 @@ class SagaOrchestratorTest {
         assertThat(failure.hasCompensationFailures()).isTrue();
         assertThat(failure.getSuppressed()).hasSize(1);
         assertThat(failure.getSuppressed()[0]).hasMessageContaining("B").hasCause(compensation);
-        assertThat(output.getOut()).contains("보상 미완료").doesNotContain("========== 보상 완료");
+        assertThat(output.getOut()).contains("보상 미완료").doesNotContain("보상 완료");
     }
 
     @Test
@@ -72,7 +72,7 @@ class SagaOrchestratorTest {
         assertThat(trace).containsExactly("execute:A");
         assertThat(failure.getCause()).isSameAs(original);
         assertThat(failure.hasCompensationFailures()).isFalse();
-        assertThat(output.getOut()).contains("보상할 Step이 없습니다").doesNotContain("========== 보상 완료");
+        assertThat(output.getOut()).contains("보상할 Step이 없습니다").doesNotContain("보상 완료");
     }
 
     private TestStep step(String name) {
